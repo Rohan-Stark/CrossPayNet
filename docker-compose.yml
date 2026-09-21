@@ -1,0 +1,8 @@
+# CrossPayNet Minimal Placeholder Docker Compose File
+#
+# No infrastructure services (PostgreSQL, Kafka, Redis, etc.) are implemented in Phase 0.
+# This file is intentionally left blank and will be populated in future phases when 
+# the architecture naturally requires these services.
+
+version: '3.8'
+services: {}
