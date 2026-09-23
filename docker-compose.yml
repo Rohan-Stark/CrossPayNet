@@ -1,8 +1,17 @@
-# CrossPayNet Minimal Placeholder Docker Compose File
-#
-# No infrastructure services (PostgreSQL, Kafka, Redis, etc.) are implemented in Phase 0.
-# This file is intentionally left blank and will be populated in future phases when 
-# the architecture naturally requires these services.
-
 version: '3.8'
-services: {}
+services:
+  postgres:
+    image: postgres:18
+    container_name: crosspaynet-db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: crosspaynet
+      POSTGRES_USER: crosspaynet_user
+      POSTGRES_PASSWORD: crosspaynet_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  pgdata:

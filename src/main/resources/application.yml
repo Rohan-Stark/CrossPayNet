@@ -1,0 +1,34 @@
+spring:
+  application:
+    name: crosspaynet
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/crosspaynet
+    username: crosspaynet_user
+    password: crosspaynet_password
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    # Explicitly disable Hibernate automatic schema generation
+    # Flyway is the authoritative schema evolution tool
+    hibernate:
+      ddl-auto: none
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  flyway:
+    enabled: true
+    # We will manage schemas in Flyway, default location is db/migration
+    locations: classpath:db/migration
+
+  modulith:
+    events:
+      jdbc:
+        # Schema owning the event publication table
+        schema: system
+        # Explicitly disable Spring Modulith auto-schema initialization
+        # since Flyway will own the creation of the system schema and table.
+        schema-initialization:
+          enabled: false

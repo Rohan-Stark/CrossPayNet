@@ -1,7 +1,7 @@
 # Project Status
 
-Current Phase: Phase 1
-Current Subphase: Phase 1.B.7
+Current Phase: Phase 2
+Current Subphase: Complete
 
 ## Completed Phases
 * Phase 0 — Engineering Constitution
@@ -12,21 +12,25 @@ Current Subphase: Phase 1.B.7
 * Phase 1.B.4 — Domain Model Refinement
 * Phase 1.B.5 — Use Cases & Interaction Flows
 * Phase 1.B.6 — System Architecture Design
-
 * Phase 1.B.7 — API & Contract Design
 * Phase 1.B.8 — Persistence Architecture
 * Phase 1.B.9 — Architecture Review
 * Phase 1.B.10 — Phase 1 Acceptance
+* **Phase 2 — Banking Foundation** ✅
+  * Checkpoint 1 — Foundation ✅
+  * Checkpoint 2 — Persistence & Event Registry ✅
+  * Checkpoint 3 — Pure Domain & Shared Kernel ✅
+  * Checkpoint 4 — Infrastructure & Capabilities ✅
+  * Checkpoint 5 — Verification ✅
 
-## Current Phase
-* **Phase 2 — Banking Foundation**: Implementation of the core Banking module (Customer, Account, available balance, and reserved amount management).
+## Current/Next Phase
+* **Phase 3 — Double-Entry Financial Ledger** ▶ NEXT
 
 ## Upcoming Phases
-* Phase 3 — Double-Entry Financial Ledger
-* Phase 4 — Payment Engine
-* Phase 5 — Financial Messaging / ISO 20022-inspired Messaging
-* Phase 6 — Routing & Correspondent Banking
-* Phase 7 — Distributed Systems, Kafka & Reliability
+* Phase 4 — Payment Engine & Orchestration ○
+* Phase 5 — Financial Messaging ○
+* Phase 6 — Routing & Correspondent Banking ○
+* Phase 7 — Distributed Systems ○
 * Phase 8 — Security & Compliance
 * Phase 9 — Observability & Operations
 * Phase 10 — AI Anomaly Detection
@@ -39,4 +43,5 @@ Current Subphase: Phase 1.B.7
 * **Phase 1.B**: CrossPayNet will be built as an Evolutionary Modular Monolith using Java 25 LTS, Spring Boot 4.1.1, and PostgreSQL 18.
 
 ## Known Limitations
-* The repository is currently structural and documentation-only. No application logic, database initialization, or infrastructure has been implemented yet.
+* Phase 2 implementation/static verification is complete.
+* Runtime Maven/PostgreSQL/Docker verification is blocked by the current host environment.

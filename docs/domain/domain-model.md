@@ -61,9 +61,9 @@ An aggregate is a transactional consistency boundary. Things inside an aggregate
 
 ### The Account Aggregate
 * **Root**: `Account`
-* **Contains**: `AccountStatus`, `Limits`
+* **Contains**: `AccountStatus`, `FundReservation`, `Limits`
 * **Must remain outside**: The actual `LedgerEntries`.
-* **Invariants protected**: An account cannot be debited if its status is `FROZEN`.
+* **Invariants protected**: An account cannot be debited if its status is `FROZEN`. The sum of `ACTIVE` reservations must strictly equal the `reservedAmount`.
 * **Why this boundary**: Separates operational rules (limits, freezing) from immutable ledger math. *(Note: The Account caches the derived balance for fast reads, but the Ledger is the source of truth).*
 
 ---

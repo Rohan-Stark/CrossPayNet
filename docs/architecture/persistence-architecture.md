@@ -59,6 +59,7 @@ Example conceptual schemas:
 
 ## G. Balance Persistence Strategy
 The `available_balance` and `reserved_amount` are maintained transactionally on the `Account` aggregate in the `banking` schema.
+*   **Reservation Tracking**: The explicit lifecycle of each reservation is tracked via the `fund_reservation` child entity table, which is updated atomically with the `Account` balances.
 *   *Why?* Calculating the available balance dynamically by summing millions of historical `LedgerEntry` records on every payment authorization is a massive performance bottleneck. The `Account` provides a fast, transactionally safe operational cache for authorization, while the `Ledger` remains the ultimate authoritative truth for actual settled accounting.
 
 ## H. Idempotency Persistence
