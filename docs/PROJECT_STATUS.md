@@ -1,7 +1,7 @@
 # Project Status
 
 Current Phase: Phase 1
-Current Subphase: Phase 1.B.6
+Current Subphase: Phase 1.B.7
 
 ## Completed Phases
 * Phase 0 — Engineering Constitution
@@ -11,13 +11,17 @@ Current Subphase: Phase 1.B.6
 * Phase 1.B.3 — Final Technology Stack & Architecture Decisions
 * Phase 1.B.4 — Domain Model Refinement
 * Phase 1.B.5 — Use Cases & Interaction Flows
+* Phase 1.B.6 — System Architecture Design
+
+* Phase 1.B.7 — API & Contract Design
+* Phase 1.B.8 — Persistence Architecture
+* Phase 1.B.9 — Architecture Review
+* Phase 1.B.10 — Phase 1 Acceptance
 
 ## Current Phase
-* **Phase 1.B.6 — System Architecture Design**: Translating the domain and use-case models into a logical software architecture with clear module boundaries and dependency rules.
+* **Phase 2 — Banking Foundation**: Implementation of the core Banking module (Customer, Account, available balance, and reserved amount management).
 
 ## Upcoming Phases
-* Phase 1.B.7 — API Contract Definition
-* Phase 2 — Banking Foundation
 * Phase 3 — Double-Entry Financial Ledger
 * Phase 4 — Payment Engine
 * Phase 5 — Financial Messaging / ISO 20022-inspired Messaging

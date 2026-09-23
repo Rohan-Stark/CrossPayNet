@@ -25,8 +25,8 @@ sequenceDiagram
     BankingModule-->>PaymentModule: Verified
     
     %% Reservation Point
-    PaymentModule->>LedgerModule: (Sync) Reserve Funds
-    LedgerModule-->>PaymentModule: Reservation Confirmed (Available Balance Reduced)
+    PaymentModule->>BankingModule: (Sync) Reserve Funds
+    BankingModule-->>PaymentModule: Reservation Confirmed (Available Balance Reduced)
     
     %% Asynchronous Compliance
     PaymentModule->>ComplianceModule: (Async Event) PaymentCreated
@@ -34,7 +34,7 @@ sequenceDiagram
     ComplianceModule-->>PaymentModule: (Async Event) ComplianceCleared
     
     %% Routing
-    PaymentModule->>RoutingModule: (Sync) Request Route
+    PaymentModule->>RoutingModule: (Sync) Select Route
     RoutingModule-->>PaymentModule: Route Selected (Correspondent X)
     
     %% Commitment Point
@@ -69,7 +69,7 @@ sequenceDiagram
     actor ComplianceOfficer as Compliance Officer
 
     Customer->>PaymentModule: Submit Payment Instruction
-    PaymentModule->>LedgerModule: (Sync) Reserve Funds
+    PaymentModule->>BankingModule: (Sync) Reserve Funds
     
     PaymentModule->>ComplianceModule: (Async Event) PaymentCreated
     Note over PaymentModule: State: COMPLIANCE_HOLD
@@ -82,8 +82,8 @@ sequenceDiagram
     
     %% Compensating Action Pre-Commitment
     Note over PaymentModule: State: REJECTED
-    PaymentModule->>LedgerModule: (Sync) Release Reservation
-    LedgerModule-->>PaymentModule: Reservation Released (Available Balance Restored)
+    PaymentModule->>BankingModule: (Sync) Release Reservation
+    BankingModule-->>PaymentModule: Reservation Released (Available Balance Restored)
     
     PaymentModule-->>Customer: Payment Rejected (Policy)
 ```
@@ -127,6 +127,6 @@ sequenceDiagram
 
 ## Failure Branches Summary
 
-*   **Scenario A: Insufficient funds**: Fails at Step 4 of Flow 1. The `Ledger` aggregate rejects the synchronous reservation command. The Payment immediately transitions to `REJECTED`.
-*   **Scenario E: No valid routing relationship**: Fails at Step 8 of Flow 1. The `Payment` cannot be routed. It transitions to `REJECTED`, and the synchronous release of reserved funds is triggered at the `Ledger`.
+*   **Scenario A: Insufficient funds**: Fails at Step 4 of Flow 1. The `Banking` aggregate rejects the synchronous reservation command. The Payment immediately transitions to `REJECTED`.
+*   **Scenario E: No valid routing relationship**: Fails at Step 8 of Flow 1. The `Payment` cannot be routed. It transitions to `REJECTED`, and the synchronous release of reserved funds is triggered at the `Banking` module.
 *   **Scenario I: Settlement Failure (Post-Delivery)**: If the `NetworkModule` receives an ACK, the payment is effectively `SETTLED` from the customer's perspective. If the correspondent bank later fails to clear the Nostro account, this creates a reconciliation break in the `Ledger`. The Payment itself is not rolled back; instead, an Operations Analyst must resolve the dispute manually or initiate a compensating accounting entry.

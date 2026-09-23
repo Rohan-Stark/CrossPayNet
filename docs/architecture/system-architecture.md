@@ -61,8 +61,14 @@ Within a module, the code is structured conceptually using layered or clean arch
 
 To prevent the monolith from becoming a "Big Ball of Mud," communication between modules is strictly regulated:
 
-* **Synchronous Calls**: Permitted when immediate consistency is required (e.g., Payment module synchronously commands the Ledger module to reserve funds). This is done by calling a public Java Interface exposed by the target module.
-* **Asynchronous Events**: Used when eventual consistency is acceptable or to decouple side effects (e.g., Payment module publishes a `PaymentCreated` Spring Application Event; Compliance module listens to it asynchronously).
+* **Synchronous Calls**: Permitted when immediate consistency is required. This is done by calling a public Java Interface exposed by the target module. Examples:
+  * `Payment` $\rightarrow$ `Banking.ReserveFunds`
+  * `Payment` $\rightarrow$ `Routing.SelectRoute`
+* **Asynchronous Events**: Used when eventual consistency is acceptable or to decouple side effects. Examples:
+  * `Payment` $\rightarrow$ `Compliance` evaluation
+  * `Payment` $\rightarrow$ `Network/Messaging` dispatch
+* **Durable Event Publication**: Any workflow-critical asynchronous event must use durable transactional publication (e.g., the Outbox pattern). This durable publication is a durability mechanism that guarantees the event is not lost if the application crashes; it is not the definition of the domain event itself (which is simply a business fact).
+* **Future Transports**: Kafka remains a future transport mechanism for these events and is NOT implemented in Phase 1.
 
 ---
 

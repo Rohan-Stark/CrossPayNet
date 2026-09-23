@@ -45,7 +45,7 @@ These represent external entities participating in the financial network, modele
   9. Payment is marked `SETTLED`.
 * **Postconditions**: Funds are irrevocably transferred. Beneficiary bank has acknowledged receipt.
 * **Invariants**: Funds must be reserved before routing; Compliance must clear before commitment.
-* **Idempotency Requirement**: Yes. Submitting the exact same instruction must return the existing payment status, preventing accidental double-charges.
+* **Idempotency Requirement**: Yes. Submitting the exact same instruction must return the existing payment status, preventing accidental duplicate financial effects.
 * **Authorization**: Customer (owning the debit account).
 * **Owning Module**: Payment Module.
 
