@@ -1,7 +1,7 @@
 # Project Status
 
 Current Phase: Phase 1
-Current Subphase: Phase 1.B.4
+Current Subphase: Phase 1.B.6
 
 ## Completed Phases
 * Phase 0 — Engineering Constitution
@@ -9,11 +9,14 @@ Current Subphase: Phase 1.B.4
 * Phase 1.B.1 — Monolith vs Modular Monolith vs Microservices
 * Phase 1.B.2.A — Backend Language & Framework Evaluation
 * Phase 1.B.3 — Final Technology Stack & Architecture Decisions
+* Phase 1.B.4 — Domain Model Refinement
+* Phase 1.B.5 — Use Cases & Interaction Flows
 
 ## Current Phase
-* **Phase 1.B.4 — Domain Model Refinement**: Refining the CrossPayNet business model into precise conceptual boundaries, aggregates, and invariants.
+* **Phase 1.B.6 — System Architecture Design**: Translating the domain and use-case models into a logical software architecture with clear module boundaries and dependency rules.
 
 ## Upcoming Phases
+* Phase 1.B.7 — API Contract Definition
 * Phase 2 — Banking Foundation
 * Phase 3 — Double-Entry Financial Ledger
 * Phase 4 — Payment Engine
