@@ -1,16 +1,19 @@
 # Project Status
 
 Current Phase: Phase 1
-Current Subphase: Phase 1.A
+Current Subphase: Phase 1.B.4
 
 ## Completed Phases
 * Phase 0 — Engineering Constitution
+* Phase 1.A — Domain Discovery, Problem Definition & System Boundaries
+* Phase 1.B.1 — Monolith vs Modular Monolith vs Microservices
+* Phase 1.B.2.A — Backend Language & Framework Evaluation
+* Phase 1.B.3 — Final Technology Stack & Architecture Decisions
 
 ## Current Phase
-* **Phase 1.A — Domain Discovery, Problem Definition & System Boundaries**: Analyzing the cross-border payment problem domain conceptually before making technical choices.
+* **Phase 1.B.4 — Domain Model Refinement**: Refining the CrossPayNet business model into precise conceptual boundaries, aggregates, and invariants.
 
 ## Upcoming Phases
-* Phase 1 — Architecture & Domain Modeling (Remaining Subphases)
 * Phase 2 — Banking Foundation
 * Phase 3 — Double-Entry Financial Ledger
 * Phase 4 — Payment Engine
@@ -26,10 +29,7 @@ Current Subphase: Phase 1.A
 
 ## Important Decisions
 * **Phase 0.A**: The project is strictly an educational simulator, not for real transactions.
-* **Phase 0.A**: AI agents must adhere to the engineering constitution defined in `AGENTS.md`. No speculative application code will be generated ahead of the corresponding phase.
-
-## Open Questions
-* None at this time.
+* **Phase 1.B**: CrossPayNet will be built as an Evolutionary Modular Monolith using Java 25 LTS, Spring Boot 4.1.1, and PostgreSQL 18.
 
 ## Known Limitations
-* The repository is currently structural only and contains no application logic.
+* The repository is currently structural and documentation-only. No application logic, database initialization, or infrastructure has been implemented yet.
