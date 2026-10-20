@@ -20,30 +20,88 @@ How should the `Ledger` module be modeled, persisted, and invoked inside the mod
 
 ## Decision
 
-### 1. Aggregate Root and Pure Domain Model
+### 1. Aggregate Root, Package Boundaries, and Pure Domain Model
 *   **Aggregate Root (`LedgerTransaction`)**: `LedgerTransaction` is the aggregate root of the `Ledger` module. `LedgerEntry` is an immutable child entity owned by `LedgerTransaction`. There is **no** global `Ledger` aggregate root.
+*   **Module and Package Boundaries**:
+    *   `com.crosspaynet.ledger` owns the public module vocabulary and contracts: `LedgerTransactionId`, `LedgerPostingKey`, `LedgerAccountRef(LedgerAccountType type, String value)`, `LedgerAccountType { BANKING_ACCOUNT, INTERNAL }`, `LedgerTransactionType { STANDARD, REVERSAL }`, `EntryDirection { DEBIT, CREDIT }`, `PostingOutcome { POSTED, ALREADY_POSTED }`, `PostLedgerTransactionCommand`, `LedgerEntryLine`, `ReverseLedgerTransactionCommand`, `LedgerPostingResult`, `LedgerBalance`, `LedgerTransactionView`, `LedgerEntryView`, and the public `LedgerException` hierarchy.
+    *   `com.crosspaynet.ledger.domain` owns the pure-Java domain implementation: `LedgerTransaction`, `LedgerEntry`, `PostingFingerprint`, `SupportedCurrencyPolicy`, and `LedgerLimits`.
+    *   `ledger.domain.LedgerTransaction` is never exposed through public module contracts; `findTransaction` returns `Optional<LedgerTransactionView>` containing `List<LedgerEntryView>`. Both `LedgerEntryView.entryId` and `LedgerEntry.entryId` use raw `UUID`s (no separate `LedgerEntryId` value object is introduced in Phase 3).
 *   **Pure Java Domain**: `com.crosspaynet.ledger.domain` must remain completely independent of Spring, JPA, Hibernate, and JDBC.
 *   **No Persisted Draft State**: Transactions are constructed and validated in memory via domain factory methods (`LedgerTransaction.post(...)` and `LedgerTransaction.reverse(...)`) so that only complete, balanced transactions are ever persisted.
+*   **Domain Constants (`LedgerLimits`)**: `LedgerLimits` in `com.crosspaynet.ledger.domain` is the single source of truth for domain bounds, which must strictly agree with database column constraints:
+    *   `MIN_ENTRIES = 2`
+    *   `MAX_ENTRIES = 100`
+    *   `MAX_SCALE = 4`
+    *   `MAX_NUMERIC_PRECISION = 19`
+    *   `MAX_AMOUNT = new BigDecimal("999999999999999.9999")`
+    *   `MAX_POSTING_KEY_LENGTH = 200`
+    *   `REVERSAL_POSTING_KEY_PREFIX = "REVERSAL:"`
+    *   `MAX_EXTERNAL_REFERENCE_LENGTH = 255`
+    *   `MAX_DESCRIPTION_LENGTH = 500`
+    *   `MAX_ACCOUNT_REFERENCE_LENGTH = 100`
+*   **Account References (`LedgerAccountRef` and `LedgerAccountType`)**:
+    *   `LedgerAccountType` has two values in Phase 3: `BANKING_ACCOUNT` and `INTERNAL`.
+    *   `LedgerAccountRef(LedgerAccountType type, String value)` requires a non-null `type` and a non-null, trimmed, non-blank `value` of `1..100` Unicode code points (`value.codePointCount(0, value.length()) <= 100`) containing no ISO control characters (`Character.isISOControl(cp)`). No ASCII-only restriction is imposed on `value`.
+*   **Supported Currency Policy (`SupportedCurrencyPolicy`)**:
+    *   The initial simulator currency allow-list enforced by `SupportedCurrencyPolicy` in `ledger.domain` is: `USD, EUR, GBP, INR, JPY, CHF, SGD, AED`.
+    *   This is a Ledger simulator policy and does not modify the Shared Kernel `Currency` class.
 *   **Domain and Accounting Invariants**:
-    *   **Entry Count**: Every posted transaction must contain at least `2` and at most `100` entries (`2 <= entries.size() <= 100`).
-    *   **Unsigned Positive Amounts + Explicit Direction**: Each `LedgerEntry` holds a strictly positive, unsigned `Money` amount (`amount > 0`, scale `<= 4`, within `NUMERIC(19,4)` bounds) and an explicit `EntryDirection` (`DEBIT` or `CREDIT`). Signed entry amounts are not used.
-    *   **Single Currency**: Every entry in a `LedgerTransaction` must match the transaction's single ISO 4217 `Currency`. Multi-currency / FX postings are out of scope for Phase 3.
-    *   **Double-Entry Balance**: The sum of all `DEBIT` entry amounts must strictly equal the sum of all `CREDIT` entry amounts, and both must equal the transaction header's declared `totalAmount` (`sum(DEBIT) == sum(CREDIT) == totalAmount`).
-    *   **Deterministic Line Numbers**: The domain assigns sequential 1-based line numbers (`1..N`) to entries in a deterministic order.
-    *   **Immutable History**: Once posted, a `LedgerTransaction` and its `LedgerEntry` lines are never updated or deleted.
+    *   **Entry Count**: Every posted transaction must contain between `MIN_ENTRIES` (`2`) and `MAX_ENTRIES` (`100`) entries, inclusive.
+    *   **Unsigned Positive Amounts + Explicit Direction**: Each `LedgerEntry` holds a strictly positive, unsigned `Money` amount (`amount > 0`, `scale <= 4`, `amount <= MAX_AMOUNT`) and an explicit `EntryDirection` (`DEBIT` or `CREDIT`). Signed entry amounts are not used.
+    *   **Single Supported Currency**: Every entry in a `LedgerTransaction` must match the transaction's single `Currency`, which must be accepted by `SupportedCurrencyPolicy`. Multi-currency / FX postings are out of scope for Phase 3.
+    *   **Double-Entry Balance**: The sum of all `DEBIT` entry amounts must strictly equal the sum of all `CREDIT` entry amounts, and both must equal the transaction header's `totalAmount` (`sum(DEBIT) == sum(CREDIT) == totalAmount <= MAX_AMOUNT`).
+    *   **Deterministic Line Numbers**: The domain assigns entry `UUID` identifiers and sequential 1-based line numbers (`1..N`) to entries in a deterministic order; callers do not supply entry IDs or line numbers.
+    *   **Immutable History**: Once constructed/posted, a `LedgerTransaction` and its `LedgerEntry` lines are defensively copied and immutable.
 
-### 2. Internal Module Capability and Posting Idempotency
-*   **Public Module Contract (`LedgerService`)**: The `Ledger` module exposes a synchronous internal application service (`LedgerService`) with four planned operations for Phase 3: `postTransaction`, `reverseTransaction`, `getBalance`, and `findTransaction`. No REST controller or external HTTP endpoint is introduced in Phase 3.
-*   **Posting Key (`LedgerPostingKey`)**: Standard postings require a caller-supplied `LedgerPostingKey` (non-blank, trimmed length `1..200` characters, matching `VARCHAR(200)` in PostgreSQL).
+### 2. Internal Module Capability, Public Contracts, and Posting Idempotency
+*   **Public Module Contract (`LedgerService`)**: The `Ledger` module exposes a synchronous internal application service (`LedgerService`) with four planned operations for Phase 3:
+    *   `LedgerPostingResult postTransaction(PostLedgerTransactionCommand command)`
+    *   `LedgerPostingResult reverseTransaction(ReverseLedgerTransactionCommand command)`
+    *   `LedgerBalance getBalance(LedgerAccountRef account, Currency currency)`
+    *   `Optional<LedgerTransactionView> findTransaction(LedgerTransactionId transactionId)`
+    *   No REST controller or external HTTP endpoint is introduced in Phase 3.
+*   **Command and View Shapes**:
+    *   `PostLedgerTransactionCommand(LedgerPostingKey postingKey, Currency currency, List<LedgerEntryLine> entries, String externalReference, String description)`: Always creates a `STANDARD` transaction (no `transactionType` field on the command). `externalReference` is required, trimmed non-blank, `<= 255` chars; `description` is optional, trimmed `<= 500` chars (blank normalizes to `null`).
+    *   `LedgerEntryLine(LedgerAccountRef account, EntryDirection direction, Money amount)`: Caller-supplied entry specification.
+    *   `ReverseLedgerTransactionCommand(LedgerTransactionId originalTransactionId, String reversalReference, String reason)`: Does not accept a caller-supplied posting key. `reversalReference` is required, trimmed non-blank, `<= 255` chars; `reason` is optional, trimmed `<= 500` chars (blank normalizes to `null`).
+    *   `LedgerPostingResult(LedgerTransactionId transactionId, PostingOutcome outcome, Instant postedAt)`.
+    *   `LedgerTransactionView(LedgerTransactionId transactionId, LedgerTransactionType transactionType, LedgerPostingKey postingKey, Currency currency, Money totalAmount, String externalReference, String description, LedgerTransactionId reversedTransactionId, Instant postedAt, List<LedgerEntryView> entries)` and `LedgerEntryView(UUID entryId, int lineNumber, LedgerAccountRef account, EntryDirection direction, Money amount)`.
+    *   `LedgerBalance(LedgerAccountRef account, Currency currency, Money debitTotal, Money creditTotal, BigDecimal netBalance)`.
+*   **Posting Key (`LedgerPostingKey`) Validation**:
+    *   Maximum length `200` characters (`MAX_POSTING_KEY_LENGTH = 200`), matching `VARCHAR(200)` in PostgreSQL.
+    *   Allowed syntax: `^[A-Za-z0-9:_.-]{1,200}$` (trimmed; no whitespace or characters outside this ASCII set).
+    *   Caller-supplied standard posting keys must not start with `REVERSAL:` (checked case-insensitively).
+    *   For reversals, `Ledger` deterministically derives the exact uppercase key `"REVERSAL:" + originalTransactionId.getValue()` via an internal/reversal factory method.
 *   **Separation of Idempotency Concerns**: Ledger posting idempotency (`LedgerPostingKey`) is distinct from external HTTP API idempotency (`Idempotency-Key`), `Banking` fund-reservation idempotency (`(account_id, payment_reference)`), and future network-message deduplication.
-*   **Deterministic Financial Fingerprint (`request_fingerprint`)**: Ledger computes a 64-character lowercase hex SHA-256 digest over the financially significant fields of the request: `transactionType`, `currency`, `totalAmount`, `externalReference`, `reversedTransactionId` (when present), and the multiset of `(accountType, accountReference, direction, amount)` entry tuples canonicalized independently of caller input list order. Descriptive metadata (`description` / reversal `reason`) is excluded from the fingerprint.
+*   **Deterministic Financial Fingerprint (`PostingFingerprint` / `request_fingerprint`)**:
+    *   Uses a versioned, length-prefixed UTF-8 canonical encoding hashed with JDK `SHA-256` to produce a 64-character lowercase hexadecimal digest.
+    *   **Version Marker**: Begins with `crosspaynet-ledger-fingerprint-v1\n`.
+    *   **Length-Prefixed Token Rule**: Each non-null scalar value is encoded as `<utf8ByteLength>:<utf8Bytes>` (where `<utf8ByteLength>` is the decimal count of UTF-8 bytes in `value.getBytes(StandardCharsets.UTF_8).length`, not UTF-16 `String.length()`), and `null` is encoded distinctly as the literal token `NULL` (with no colon), so `null` and empty string `0:` can never collide.
+    *   **Included Header Fields (in exact order, each followed by `\n`)**:
+        1. `transactionType`: `LedgerTransactionType.name()` (`STANDARD` or `REVERSAL`)
+        2. `currency`: 3-letter uppercase ISO code (`currency.getCode()`)
+        3. `totalAmount`: exact 4-decimal plain string (`totalAmount.getAmount().setScale(4, RoundingMode.UNNECESSARY).toPlainString()`)
+        4. `externalReference`: trimmed `externalReference` (or `reversalReference` for reversals)
+        5. `reversedTransactionId`: `NULL` for `STANDARD`, or length-prefixed lowercase UUID string (`reversedTransactionId.getValue().toString()`) for `REVERSAL`
+        6. `entryCount`: length-prefixed decimal integer count of entries
+    *   **Canonical Entry Tuples**:
+        *   Each entry is encoded as the 4-field length-prefixed record `<len>:<accountType.name()>|<len>:<accountRef.value()>|<len>:<direction.name()>|<len>:<amount.setScale(4).toPlainString()>`.
+        *   The encoded entry records are sorted deterministically in ascending lexicographical order (`Comparator.naturalOrder()` over their canonical length-prefixed strings) and appended in sorted order (each followed by `\n`).
+        *   Descriptive metadata (`description` / reversal `reason`) and caller input list order are excluded from the fingerprint.
+*   **Public Exception Hierarchy (`com.crosspaynet.ledger`)**:
+    *   `LedgerException extends RuntimeException`: Root exception for the `Ledger` module.
+    *   `LedgerValidationException extends LedgerException`: Base exception for domain, invariant, and business validation errors (distinct from technical/database runtime failures).
+    *   `LedgerPostingKeyConflictException extends LedgerValidationException`: Thrown when a `posting_key` is reused with a different `request_fingerprint`.
+    *   `LedgerReversalConflictException extends LedgerValidationException`: Thrown when `originalTransactionId` was already reversed with a different `reversalReference`; carries `existingReversalTransactionId` (`LedgerTransactionId`).
+    *   `LedgerTransactionNotFoundException extends LedgerValidationException`: Thrown when a referenced `originalTransactionId` does not exist.
+    *   Additional specific domain-validation exceptions may extend `LedgerValidationException`.
 *   **PostgreSQL Conflict-Safe Claim (`INSERT ... ON CONFLICT DO NOTHING`)**:
     *   Because an uncaught uniqueness violation in PostgreSQL marks the current database transaction as aborted (`25P02`), `LedgerService` must **not** use a failing `INSERT` + exception catch as a recoverable business flow.
     *   Instead, after pure domain validation succeeds, the persistence layer attempts to insert the transaction header using `INSERT INTO ledger.ledger_transaction (...) VALUES (...) ON CONFLICT (posting_key) DO NOTHING`.
     *   **Row inserted (`1` row affected)**: The posting key is claimed; the child `ledger_entry` rows are inserted in the same local transaction and the method returns `POSTED` with the new `LedgerTransactionId`.
     *   **Conflict (`0` rows affected)**: The existing `LedgerTransaction` for `posting_key` is loaded and its persisted `request_fingerprint` is compared against the incoming command's fingerprint:
         *   **Matching fingerprint**: Returns `ALREADY_POSTED` with the existing `LedgerTransactionId` (idempotent replay, no duplicate entries written).
-        *   **Different fingerprint**: Throws a conflict exception (`LedgerPostingKeyConflictException` / validation conflict) without writing any new records.
+        *   **Different fingerprint**: Throws `LedgerPostingKeyConflictException` (or `LedgerReversalConflictException` for reversals) without writing any new records.
 
 ### 3. Reversal Semantics and Persistence Mapping
 *   **Compensating Full Reversal**: Correcting a posted transaction requires creating a new immutable `LedgerTransaction` of type `REVERSAL` whose entries mirror the original `STANDARD` transaction's entries 1-for-1 (same `accountType`, `accountReference`, `currency`, and `amount`) with `DEBIT` and `CREDIT` directions flipped (`DEBIT` $\leftrightarrow$ `CREDIT`).

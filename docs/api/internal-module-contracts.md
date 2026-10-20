@@ -34,42 +34,40 @@ Synchronous contracts are used when immediate consistency is required to satisfy
 * **Behavior**: Synchronous read-only query.
 
 ### `Ledger.PostTransaction` (Planned for Phase 3 — ADR-006)
-* **Purpose**: Atomically validate and persist a balanced, single-currency double-entry accounting transaction in the `ledger` schema.
+* **Purpose**: Atomically validate and persist a balanced, single-currency double-entry `STANDARD` accounting transaction in the `ledger` schema.
 * **Exposed By**: Ledger Module (`LedgerService.postTransaction`)
 * **Consumed By**: Payment Module / Settlement Module (future phases)
-* **Input Concepts (`PostLedgerTransactionCommand`)**:
-  * `postingKey`: `LedgerPostingKey` (Required, non-blank, max 200 characters)
-  * `transactionType`: `LedgerTransactionType` (Required, `STANDARD` for normal postings; not `REVERSAL`)
-  * `currency`: `Currency` (Required, 3-letter ISO 4217 code)
-  * `totalAmount`: `Money` (Required, positive, `scale <= 4`, matching `currency`)
+* **Input Concepts (`PostLedgerTransactionCommand(LedgerPostingKey postingKey, Currency currency, List<LedgerEntryLine> entries, String externalReference, String description)`)**:
+  * `postingKey`: `LedgerPostingKey` (Required, syntax `[A-Za-z0-9:_.-]{1,200}`, must not start with `REVERSAL:` case-insensitively)
+  * `currency`: `Currency` (Required, 3-letter ISO 4217 code accepted by `SupportedCurrencyPolicy`: `USD, EUR, GBP, INR, JPY, CHF, SGD, AED`)
+  * `entries`: `List<LedgerEntryLine>` (Required, 2 to 100 items, each `LedgerEntryLine(LedgerAccountRef account, EntryDirection direction, Money amount)` with `LedgerAccountRef(LedgerAccountType type, String value)` where `type` is `BANKING_ACCOUNT` or `INTERNAL` and `value` is `1..100` Unicode code points with no ISO control chars, `EntryDirection` (`DEBIT` or `CREDIT`), and positive unsigned `Money` amount `<= 999999999999999.9999`; the domain assigns entry UUIDs and deterministic `1..N` line numbers and derives `totalAmount`)
   * `externalReference`: `String` (Required, non-blank, max 255 characters $\rightarrow$ stored in `ledger_transaction.external_reference`)
-  * `description`: `String` (Optional/nullable, max 500 characters $\rightarrow$ stored in `ledger_transaction.description`; excluded from financial fingerprint)
-  * `entries`: `List<LedgerEntryRequest>` (Required, 2 to 100 items, each with `accountType`, `accountReference`, `EntryDirection` (`DEBIT` or `CREDIT`), and positive unsigned `Money` amount)
-* **Output Concepts (`LedgerPostingResult`)**:
+  * `description`: `String` (Optional/nullable, max 500 characters, blank normalizes to `null` $\rightarrow$ stored in `ledger_transaction.description`; excluded from financial fingerprint)
+* **Output Concepts (`LedgerPostingResult(LedgerTransactionId transactionId, PostingOutcome outcome, Instant postedAt)`)**:
   * `transactionId`: `LedgerTransactionId`
-  * `status`: `PostingOutcome` (`POSTED` on first creation, or `ALREADY_POSTED` on idempotent retry with matching financial fingerprint)
+  * `outcome`: `PostingOutcome` (`POSTED` on first creation, or `ALREADY_POSTED` on idempotent retry with matching financial fingerprint)
   * `postedAt`: `Instant`
-* **Failure Semantics**:
-  * Throws `LedgerValidationException` if domain invariants fail (e.g., fewer than 2 or more than 100 entries, currency mismatch, non-positive amount, `sum(DEBIT) != sum(CREDIT)`, or `sum(DEBIT) != totalAmount`).
-  * Throws `LedgerPostingKeyConflictException` if `postingKey` was already claimed with a different `request_fingerprint`.
-* **Behavior**: Synchronous (`Propagation.REQUIRED`). Claims `posting_key` via `INSERT ... ON CONFLICT (posting_key) DO NOTHING` so idempotent retries and payload conflicts never abort the caller's PostgreSQL transaction. No REST endpoint is exposed.
+* **Failure Semantics** (Public exceptions in `com.crosspaynet.ledger`, rooted at `LedgerException extends RuntimeException` $\rightarrow$ `LedgerValidationException extends LedgerException`):
+  * Throws `LedgerValidationException` (or a specific subclass) if domain invariants fail (e.g., fewer than 2 or more than 100 entries, unsupported or mismatched currency, non-positive or out-of-bounds amount, or `sum(DEBIT) != sum(CREDIT)`).
+  * Throws `LedgerPostingKeyConflictException` (extends `LedgerValidationException`) if `postingKey` was already claimed with a different `request_fingerprint`.
+* **Behavior**: Synchronous (`Propagation.REQUIRED`). Always creates a `STANDARD` transaction (`LedgerTransactionType.STANDARD`). Claims `posting_key` via `INSERT ... ON CONFLICT (posting_key) DO NOTHING` so idempotent retries and payload conflicts never abort the caller's PostgreSQL transaction. No REST endpoint is exposed.
 
 ### `Ledger.ReverseTransaction` (Planned for Phase 3 — ADR-006)
-* **Purpose**: Create a new immutable compensating `REVERSAL` transaction whose entries mirror an existing posted `STANDARD` transaction 1-for-1 (same `accountType`, `accountReference`, `currency`, and `amount`) with `DEBIT` and `CREDIT` directions flipped.
+* **Purpose**: Create a new immutable compensating `REVERSAL` transaction whose entries mirror an existing posted `STANDARD` transaction 1-for-1 (same `LedgerAccountRef`, `currency`, and `amount`) with `DEBIT` and `CREDIT` directions flipped.
 * **Exposed By**: Ledger Module (`LedgerService.reverseTransaction`)
 * **Consumed By**: Payment Module / Settlement Module / Operations (future phases)
-* **Input Concepts (`ReverseLedgerTransactionCommand`)**:
-  * `originalTransactionId`: `LedgerTransactionId` (Required $\rightarrow$ stored in `ledger_transaction.reversed_transaction_id`; Ledger deterministically derives `posting_key = "REVERSAL:" + originalTransactionId`)
+* **Input Concepts (`ReverseLedgerTransactionCommand(LedgerTransactionId originalTransactionId, String reversalReference, String reason)`)**:
+  * `originalTransactionId`: `LedgerTransactionId` (Required $\rightarrow$ stored in `ledger_transaction.reversed_transaction_id`; Ledger deterministically derives uppercase `posting_key = "REVERSAL:" + originalTransactionId`; callers do not supply a posting key)
   * `reversalReference`: `String` (Required, non-blank, max 255 characters $\rightarrow$ stored in `ledger_transaction.external_reference`; included in `request_fingerprint`)
-  * `reason`: `String` (Optional/nullable, max 500 characters $\rightarrow$ stored in `ledger_transaction.description`; excluded from `request_fingerprint`)
-* **Output Concepts (`LedgerPostingResult`)**:
+  * `reason`: `String` (Optional/nullable, max 500 characters, blank normalizes to `null` $\rightarrow$ stored in `ledger_transaction.description`; excluded from `request_fingerprint`)
+* **Output Concepts (`LedgerPostingResult(LedgerTransactionId transactionId, PostingOutcome outcome, Instant postedAt)`)**:
   * `transactionId`: `LedgerTransactionId` (ID of the newly created or existing reversal transaction)
-  * `status`: `PostingOutcome` (`POSTED` on first reversal, or `ALREADY_POSTED` when retried with the same `originalTransactionId` and `reversalReference`)
+  * `outcome`: `PostingOutcome` (`POSTED` on first reversal, or `ALREADY_POSTED` when retried with the same `originalTransactionId` and `reversalReference`)
   * `postedAt`: `Instant`
 * **Failure Semantics**:
-  * Throws `LedgerTransactionNotFoundException` if `originalTransactionId` does not exist.
+  * Throws `LedgerTransactionNotFoundException` (extends `LedgerValidationException`) if `originalTransactionId` does not exist.
   * Throws `LedgerValidationException` if the target transaction is not a `STANDARD` transaction (reversal-of-reversal is prohibited in both the Java domain and PostgreSQL deferred integrity trigger).
-  * Throws `LedgerReversalConflictException` (carrying the existing reversal `LedgerTransactionId`) if `originalTransactionId` was already reversed with a different `reversalReference`.
+  * Throws `LedgerReversalConflictException` (extends `LedgerValidationException`, carrying `existingReversalTransactionId`) if `originalTransactionId` was already reversed with a different `reversalReference`.
 * **Behavior**: Synchronous (`Propagation.REQUIRED`). Preserves the original transaction unchanged and uses the deterministic `REVERSAL:{originalTransactionId}` posting key with `ON CONFLICT DO NOTHING` for concurrency safety.
 
 ### `Ledger.GetBalance` (Planned for Phase 3 — ADR-006)
@@ -77,10 +75,10 @@ Synchronous contracts are used when immediate consistency is required to satisfy
 * **Exposed By**: Ledger Module (`LedgerService.getBalance`)
 * **Consumed By**: Settlement Module / Operations Module (future phases)
 * **Input Concepts**:
-  * `accountType` / `accountReference`: Target ledger account identifier (`LedgerAccountReference`)
+  * `account`: `LedgerAccountRef(LedgerAccountType type, String value)`
   * `currency`: `Currency`
-* **Output Concepts (`AccountLedgerBalance`)**:
-  * `accountType` / `accountReference`: Target ledger account identifier (`LedgerAccountReference`)
+* **Output Concepts (`LedgerBalance(LedgerAccountRef account, Currency currency, Money debitTotal, Money creditTotal, BigDecimal netBalance)`)**:
+  * `account`: `LedgerAccountRef`
   * `currency`: `Currency`
   * `debitTotal`: `Money` (unsigned sum of `DEBIT` entries, zero if none)
   * `creditTotal`: `Money` (unsigned sum of `CREDIT` entries, zero if none)
@@ -88,13 +86,13 @@ Synchronous contracts are used when immediate consistency is required to satisfy
 * **Behavior**: Synchronous read-only query (`readOnly = true`). Computed on read without a mutable balance-projection table.
 
 ### `Ledger.FindTransaction` (Planned for Phase 3 — ADR-006)
-* **Purpose**: Retrieve a posted `LedgerTransaction` aggregate and its immutable `LedgerEntry` lines by `LedgerTransactionId`.
-* **Exposed By**: Ledger Module (`LedgerService.findTransaction`)
+* **Purpose**: Retrieve a read-only view of a posted `LedgerTransaction` and its immutable entries by `LedgerTransactionId` without exposing internal `ledger.domain` classes across module boundaries.
+* **Exposed By**: Ledger Module (`LedgerService.findTransaction(LedgerTransactionId transactionId)`)
 * **Consumed By**: Payment Module / Settlement Module / Operations Module (future phases)
 * **Input Concepts**:
   * `transactionId`: `LedgerTransactionId`
 * **Output Concepts**:
-  * `Optional<LedgerTransaction>` (including header fields, `reversedTransactionId` if applicable, and ordered `1..N` `LedgerEntry` lines)
+  * `Optional<LedgerTransactionView>` where `LedgerTransactionView` exposes `transactionId`, `transactionType` (`LedgerTransactionType { STANDARD, REVERSAL }`), `postingKey`, `currency`, `totalAmount`, `externalReference`, optional `description`, optional `reversedTransactionId`, `postedAt`, and immutable `List<LedgerEntryView>` (each `LedgerEntryView(UUID entryId, int lineNumber, LedgerAccountRef account, EntryDirection direction, Money amount)`)
 * **Behavior**: Synchronous read-only query (`readOnly = true`).
 
 ## 2. Asynchronous Contracts (Domain Events)

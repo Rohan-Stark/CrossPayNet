@@ -47,9 +47,9 @@ An aggregate is a transactional consistency boundary. Things inside an aggregate
 
 ### The LedgerTransaction Aggregate
 * **Root**: `LedgerTransaction` (There is no single global `Ledger` aggregate root, which would create a concurrency bottleneck).
-* **Contains**: `LedgerEntry` (immutable child line items, 2 to 100 entries per transaction).
+* **Contains**: `LedgerEntry` (immutable child line items, 2 to 100 entries per transaction, each referencing an account via `LedgerAccountRef(LedgerAccountType type, String value)` where `type` is `BANKING_ACCOUNT` or `INTERNAL` and `value` is `1..100` Unicode code points).
 * **Must remain outside**: `Account` status, operational reservations, `Payment` details.
-* **Invariants protected**: Every posted `LedgerTransaction` is single-currency, contains between 2 and 100 `LedgerEntry` lines, each entry has a strictly positive unsigned `Money` amount and an explicit direction (`DEBIT` or `CREDIT`), and total debits equal total credits and equal the transaction's declared `totalAmount` (`sum(DEBIT) == sum(CREDIT) == totalAmount`).
+* **Invariants protected**: Every posted `LedgerTransaction` uses a single currency accepted by the simulator's `SupportedCurrencyPolicy` (`USD, EUR, GBP, INR, JPY, CHF, SGD, AED`; note that this is a simulator policy and does not modify the Shared Kernel `Currency` class), contains between 2 and 100 `LedgerEntry` lines (`LedgerLimits.MIN_ENTRIES`..`MAX_ENTRIES`), each entry has a strictly positive unsigned `Money` amount (`<= 999999999999999.9999`) and an explicit direction (`DEBIT` or `CREDIT`), and total debits equal total credits and equal the transaction's `totalAmount` (`sum(DEBIT) == sum(CREDIT) == totalAmount`).
 * **Why this boundary**: Ensures money is never created or destroyed mathematically while allowing independent transactions to be posted concurrently.
 
 ### The Payment Aggregate
