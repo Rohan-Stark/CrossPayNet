@@ -14,7 +14,7 @@ public final class AccountId {
     }
 
     public static AccountId generate() {
-        return new AccountId(UUID.randomModel());
+        return new AccountId(UUID.randomUUID());
     }
 
     public static AccountId of(String uuid) {

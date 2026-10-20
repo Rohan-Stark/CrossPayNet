@@ -14,7 +14,7 @@ public final class ReservationToken {
     }
 
     public static ReservationToken generate() {
-        return new ReservationToken(UUID.randomModel());
+        return new ReservationToken(UUID.randomUUID());
     }
 
     public static ReservationToken of(String uuid) {

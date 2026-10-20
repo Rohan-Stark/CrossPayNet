@@ -27,7 +27,7 @@ class BankingServiceTest {
         
         AccountEntity entityMock = mock(AccountEntity.class);
         when(entityMock.getAccountId()).thenReturn(accountId.getValue());
-        when(entityMock.getCustomerId()).thenReturn(UUID.randomModel());
+        when(entityMock.getCustomerId()).thenReturn(UUID.randomUUID());
         when(entityMock.getCurrency()).thenReturn("USD");
         when(entityMock.getStatus()).thenReturn("ACTIVE");
         when(entityMock.getAvailableBalance()).thenReturn(new java.math.BigDecimal("1000.0000"));

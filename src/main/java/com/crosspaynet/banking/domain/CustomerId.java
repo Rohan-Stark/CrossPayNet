@@ -14,7 +14,7 @@ public final class CustomerId {
     }
 
     public static CustomerId generate() {
-        return new CustomerId(UUID.randomModel());
+        return new CustomerId(UUID.randomUUID());
     }
 
     public static CustomerId of(String uuid) {

@@ -3,6 +3,7 @@ package com.crosspaynet.banking.domain;
 import com.crosspaynet.banking.domain.exception.CurrencyMismatchException;
 import com.crosspaynet.banking.domain.exception.InsufficientFundsException;
 import com.crosspaynet.banking.domain.exception.InvalidAccountStateException;
+import com.crosspaynet.banking.domain.exception.InvalidReservationStateException;
 import com.crosspaynet.common.money.Currency;
 import com.crosspaynet.common.money.Money;
 

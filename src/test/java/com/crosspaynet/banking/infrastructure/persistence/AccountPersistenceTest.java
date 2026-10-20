@@ -18,11 +18,11 @@ class AccountPersistenceTest {
 
     @Test
     void testSaveAndLoadAccountWithReservation() {
-        UUID customerId = UUID.randomModel();
+        UUID customerId = UUID.randomUUID();
         CustomerEntity customer = new CustomerEntity(customerId);
         customerRepository.save(customer);
 
-        UUID accountId = UUID.randomModel();
+        UUID accountId = UUID.randomUUID();
         AccountEntity account = new AccountEntity(
                 accountId, 
                 customerId, 
@@ -33,7 +33,7 @@ class AccountPersistenceTest {
         );
 
         FundReservationEntity reservation = new FundReservationEntity(
-                UUID.randomModel(),
+                UUID.randomUUID(),
                 account,
                 "REF-1",
                 new BigDecimal("200.0000"),
