@@ -35,13 +35,13 @@ These represent external entities participating in the financial network, modele
 * **Trigger**: Customer submits a Payment Instruction.
 * **Main Flow**:
   1. Bank validates instruction format and limits.
-  2. Ledger reserves funds (Customer available balance is reduced; actual ledger balance remains unchanged).
+  2. Banking reserves funds on the Customer's `Account` (Customer `available_balance` is reduced and `reserved_amount` is increased; authoritative `Ledger` balance remains unchanged).
   3. Compliance evaluates the payment (cleared).
   4. Routing selects a valid correspondent path.
   5. Payment transitions to `EXECUTING` (financially committed).
   6. Payment Message is generated and sent.
   7. Receiving Bank processes and acknowledges the message.
-  8. Settlement occurs via Nostro/Vostro accounts.
+  8. Settlement occurs via Nostro/Vostro accounts and posts the immutable `LedgerTransaction` in the `Ledger` module.
   9. Payment is marked `SETTLED`.
 * **Postconditions**: Funds are irrevocably transferred. Beneficiary bank has acknowledged receipt.
 * **Invariants**: Funds must be reserved before routing; Compliance must clear before commitment.
@@ -63,7 +63,7 @@ These represent external entities participating in the financial network, modele
 ### 2.3 "Fund Account (Simulation Bootstrap)"
 * **Primary Actor**: Bank Administrator
 * **Goal**: Add synthetic funds to an account to allow testing.
-* **Important Note**: This is an **administrative simulation operation**, *not* a real-world core banking use case. In a real system, funding occurs via deposits, payroll, or inbound transfers. For CrossPayNet, this bypasses the standard transfer lifecycle to bootstrap the simulation.
+* **Important Note**: This is an **administrative simulation operation**, *not* a real-world core banking use case. In a real system, funding occurs via deposits, payroll, or inbound transfers. For CrossPayNet, this bypasses the standard transfer lifecycle to bootstrap the simulation. *(Note: In Phase 2/3, `BankingService.fundAccount` updates the operational `available_balance` in `Banking` without posting a `LedgerTransaction`; reconciliation between simulator funding and the `Ledger` is deferred to a later phase).*
 * **Owning Module**: Banking Module.
 
 ### 2.4 "Process Payment Return"
@@ -77,14 +77,14 @@ These represent external entities participating in the financial network, modele
 ## 3. Financial Commitment Points
 
 For a Cross-Border Payment, understanding exactly *when* money moves and *when* the bank is committed is crucial. We must explicitly distinguish the following concepts:
-* **Ledger balance**: The authoritative accounting position based on settled, immutable ledger entries.
-* **Reserved/held amount**: Funds temporarily held for an outstanding obligation (a pending payment).
-* **Available balance**: The amount still available for the customer to spend (Ledger balance minus Reserved amount).
-* **Actual settlement**: The final accounting movement of funds on the ledger.
+* **Ledger balance**: The authoritative accounting position derived on read from settled, immutable `LedgerEntry` records in the `Ledger` module.
+* **Reserved/held amount**: Funds temporarily held on the `Account` aggregate in the `Banking` module for an outstanding obligation (a pending payment).
+* **Available balance**: The operational amount maintained on the `Account` aggregate in the `Banking` module still available for authorization after reservations.
+* **Actual settlement**: The final accounting movement of funds recorded via an immutable `LedgerTransaction` in the `Ledger` module.
 
-1. **Funds Reserved**: Occurs immediately after validation. The Ledger Aggregate places a hold. The customer's **available balance** is reduced, but the **ledger balance** is unchanged because actual settlement has not yet occurred. *If a failure occurs here (e.g., compliance rejection), the reservation is simply released.*
+1. **Funds Reserved**: Occurs immediately after validation. The `Banking` module (`Account` aggregate) places a hold (`FundReservation`). The customer's **available balance** is reduced and **reserved amount** is increased, while the **ledger balance** in the `Ledger` module is unchanged because actual accounting settlement has not yet occurred. *If a failure occurs here (e.g., compliance rejection), the reservation in `Banking` is released without creating any compensating `LedgerTransaction`.*
 2. **Financially Committed**: Occurs when the bank selects a route and transitions the Payment to `EXECUTING`. The bank has committed to the correspondent bank that funds will settle. *If a failure occurs after this point, operational intervention is required; the reserved funds cannot be automatically released back to the customer.*
-3. **Settlement Occurs**: The actual financial accounting movement. This occurs asynchronously when the final debit is posted to the customer's ledger balance and the correspondent bank debits/credits the Nostro account.
+3. **Settlement Occurs**: The actual financial accounting movement. This occurs when the `Ledger` module posts an immutable double-entry `LedgerTransaction` (`DEBIT` and `CREDIT` `LedgerEntry` lines) and the `Banking` reservation is consumed. Any post-posting accounting correction requires a new compensating or `REVERSAL` `LedgerTransaction` (`reversed_transaction_id`).
 4. **Message Success, Settlement Failure**: If the Payment Message is successfully delivered to the Receiving Bank, but the subsequent Nostro settlement fails, the Payment is technically completed from the customer's perspective. The settlement failure represents an inter-bank dispute handled by Operations, not a failure of the Customer's payment instruction.
 
 ---

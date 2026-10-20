@@ -22,7 +22,7 @@ We must distinguish between concepts that have an ongoing lifecycle/identity (**
 * **Account**: Balance changes, but it remains the same Account.
 * **Payment**: Progresses through a state machine, maintaining the same Payment ID.
 * **PaymentMessage**: Represents a specific physical transmission attempt.
-* **Ledger**: The systemic record keeper.
+* **LedgerTransaction**: An individual double-entry accounting transaction containing immutable debit and credit entries.
 
 ---
 
@@ -33,11 +33,11 @@ A common pitfall is conflating the intent, the orchestration, the transmission, 
 1. **Payment Instruction**: *What it IS*: The raw, unvalidated intent from a Customer. *What it is NOT*: A financial liability. *Who creates it*: The Customer (via API).
 2. **Payment**: *What it IS*: The bank's internal orchestrator/state machine. *What it is NOT*: The message sent to another bank. *Who creates it*: The Payment Engine (after validating the Instruction).
 3. **Payment Message**: *What it IS*: The physical artifact (e.g., ISO 20022 `pacs.008`) sent over the wire. *What it is NOT*: The Payment orchestration. *Why separate*: If a network link drops, we generate a *new* Message for the *same* Payment via a different route.
-4. **Settlement**: *What it IS*: The inter-bank accounting effect. *What it is NOT*: The customer-facing balance update.
-5. **Ledger Entry**: *What it IS*: The intra-bank accounting effect.
+4. **Settlement**: *What it IS*: The inter-bank settlement obligation and process. *What it is NOT*: The customer-facing balance reservation.
+5. **LedgerTransaction & LedgerEntry**: *What they ARE*: The authoritative, immutable double-entry accounting transaction and its individual `DEBIT` / `CREDIT` line items.
 
 *Conceptual Flow*:
-`Customer` -> submits -> `Instruction` -> validates into -> `Payment` -> generates -> `Message` -> results in -> `Settlement` (via `Ledger Entries`).
+`Customer` -> submits -> `Instruction` -> validates into -> `Payment` -> generates -> `Message` -> results in -> `Settlement` (recorded via `LedgerTransaction` and `LedgerEntries`).
 
 ---
 
@@ -45,12 +45,12 @@ A common pitfall is conflating the intent, the orchestration, the transmission, 
 
 An aggregate is a transactional consistency boundary. Things inside an aggregate must be strictly consistent immediately. Things crossing aggregates can be eventually consistent.
 
-### The Ledger Aggregate
-* **Root**: `Ledger`
-* **Contains**: `LedgerEntry`, `LedgerTransaction`
-* **Must remain outside**: `Account` status, `Payment` details.
-* **Invariants protected**: A `LedgerTransaction` must contain $\ge$ 2 `LedgerEntries` where sum of debits == sum of credits. 
-* **Why this boundary**: Ensures money is never created or destroyed mathematically.
+### The LedgerTransaction Aggregate
+* **Root**: `LedgerTransaction` (There is no single global `Ledger` aggregate root, which would create a concurrency bottleneck).
+* **Contains**: `LedgerEntry` (immutable child line items, 2 to 100 entries per transaction).
+* **Must remain outside**: `Account` status, operational reservations, `Payment` details.
+* **Invariants protected**: Every posted `LedgerTransaction` is single-currency, contains between 2 and 100 `LedgerEntry` lines, each entry has a strictly positive unsigned `Money` amount and an explicit direction (`DEBIT` or `CREDIT`), and total debits equal total credits and equal the transaction's declared `totalAmount` (`sum(DEBIT) == sum(CREDIT) == totalAmount`).
+* **Why this boundary**: Ensures money is never created or destroyed mathematically while allowing independent transactions to be posted concurrently.
 
 ### The Payment Aggregate
 * **Root**: `Payment`
@@ -63,16 +63,16 @@ An aggregate is a transactional consistency boundary. Things inside an aggregate
 * **Root**: `Account`
 * **Contains**: `AccountStatus`, `FundReservation`, `Limits`
 * **Must remain outside**: The actual `LedgerEntries`.
-* **Invariants protected**: An account cannot be debited if its status is `FROZEN`. The sum of `ACTIVE` reservations must strictly equal the `reservedAmount`.
-* **Why this boundary**: Separates operational rules (limits, freezing) from immutable ledger math. *(Note: The Account caches the derived balance for fast reads, but the Ledger is the source of truth).*
+* **Invariants protected**: An account cannot be debited or have funds reserved if its status is not `ACTIVE` (e.g., `FROZEN` or `CLOSED`). The sum of `ACTIVE` reservations must strictly equal the `reservedAmount`, and `availableBalance` and `reservedAmount` cannot be negative.
+* **Why this boundary**: Separates operational authorization rules (available balance, reservations, freezing) owned by `Banking` from immutable double-entry accounting owned by `Ledger`.
 
 ---
 
 ## 4. Account, Ledger, and Settlement Model
 
-* **The Relationship**: An `Account` does not independently hold a balance. The balance is functionally a derivation of all `LedgerEntries` pointing to that Account.
-* **Immutability**: A `LedgerEntry`, once committed, is mathematically immutable. To correct an error, a new compensating entry must be posted.
-* **Settlement**: Settlement is modeled as a specific type of `LedgerTransaction` occurring on Nostro/Vostro accounts (bank-to-bank accounts) rather than customer accounts. 
+* **The Relationship**: `Banking` owns the operational `Account` aggregate (`availableBalance`, `reservedAmount`, and `FundReservation` holds) used for fast synchronous authorization. `Ledger` owns the authoritative accounting history (`LedgerTransaction` and `LedgerEntry`), from which the settled **ledger balance** (`debitTotal`, `creditTotal`, and `netBalance`) is derived on read. *(Note: During Phase 2/3 simulator bootstrap, `BankingService.fundAccount` increments operational `availableBalance` without posting a `LedgerTransaction`; full reconciliation between operational and ledger balances is deferred to a later phase).*
+* **Immutability**: A posted `LedgerTransaction` and its `LedgerEntry` lines, once committed, are immutable. To correct or reverse a posted transaction, a new compensating `REVERSAL` `LedgerTransaction` (referencing `reversed_transaction_id` and flipping `DEBIT` and `CREDIT` directions) must be posted.
+* **Settlement**: Settlement is the bank-to-bank obligation and liquidity process owned by the `Settlement` module, which invokes the `Ledger` module to record the resulting `LedgerTransaction` entries on Nostro/Vostro accounts.
 
 ---
 
@@ -129,7 +129,7 @@ stateDiagram-v2
 
 ## 8. Domain Invariants vs. Rules
 
-* **Domain Invariant (Strict)**: *Ledger Balance Neutrality*. Sum of entries in a transaction must equal zero. (Enforced by `Ledger` Aggregate).
+* **Domain Invariant (Strict)**: *Ledger Double-Entry Balance*. Every `LedgerTransaction` must have 2 to 100 entries with positive unsigned `Money` amounts in a single currency where `sum(DEBIT) == sum(CREDIT) == totalAmount`. (Enforced by the `LedgerTransaction` Aggregate).
 * **Domain Invariant (Strict)**: *Payment Progression*. A payment cannot settle if compliance is pending. (Enforced by `Payment` Aggregate).
 * **Security/Authorization Rule (Cross-cutting)**: Only a user with `ROLE_TELLER` can override a risk hold. (Enforced by application security layer, not the domain model).
 * **Operational Rule (Configurable)**: Cross-border payments over $10,000 require manual review. (Enforced by business rule engine).
@@ -141,12 +141,12 @@ stateDiagram-v2
 These represent genuine business facts that have occurred, used to communicate across aggregate boundaries.
 
 * `PaymentInstructionReceived`: Fact that a customer requested a move.
-* `FundsReserved`: Fact that the Ledger successfully held funds for a Payment.
+* `FundsReserved`: Fact that the `Banking` module successfully held operational funds on an `Account` for a Payment.
 * `ComplianceCleared`: Fact that the Compliance domain approved the entity.
 * `PaymentSentToNetwork`: Fact that a Message was physically dispatched.
 * `PaymentSettled`: Fact that the final accounting effect is complete.
 
-*(Excluded: Technical events like `DatabaseUpdated` or `MessageQueued`).*
+*(Excluded: Technical events like `DatabaseUpdated` or `MessageQueued`. Note: No domain events are published by the `Ledger` module in Phase 3).*
 
 ---
 
@@ -154,11 +154,14 @@ These represent genuine business facts that have occurred, used to communicate a
 
 We map these aggregates to candidate logical modules for our Evolutionary Modular Monolith:
 
-1. **Banking Module**: Owns `Customer`, `Account`, limits, and KYC status.
-2. **Ledger Module**: Owns `Ledger`, `LedgerTransaction`, `LedgerEntry`.
+1. **Banking Module**: Owns `Customer`, `Account` (including `availableBalance`, `reservedAmount`, and `FundReservation`), limits, and KYC status.
+2. **Ledger Module**: Owns `LedgerTransaction` (Aggregate Root) and `LedgerEntry` (immutable child line items).
 3. **Payment Module**: Owns `PaymentInstruction`, `Payment` orchestration.
-4. **Network/Messaging Module**: Owns `PaymentMessage`, `Route`, parsing ISO 20022.
-5. **Compliance Module**: Owns `ComplianceCheck`, Sanctions lists.
+4. **Network/Messaging Module**: Owns `PaymentMessage`, parsing ISO 20022.
+5. **Routing Module**: Owns `Route` and `CorrespondentRelationship`.
+6. **Settlement Module**: Owns `SettlementBatch` and `LiquidityObligation`.
+7. **Compliance Module**: Owns `ComplianceCheck`, Sanctions lists.
+8. **Operations/Audit Module**: Owns `AuditEvent`, `DisputeCase`.
 
 ---
 
@@ -166,9 +169,12 @@ We map these aggregates to candidate logical modules for our Evolutionary Modula
 
 How boundaries communicate conceptually:
 
-* **Payment $\rightarrow$ Ledger (Funds Reservation)**: 
-  * *Interaction*: Payment issues a command to Ledger to reserve funds. 
-  * *Consistency*: Synchronous/Immediate. The Payment cannot proceed if funds don't exist.
+* **Payment $\rightarrow$ Banking (Funds Reservation)**:
+  * *Interaction*: Payment issues a synchronous command to `Banking` (`BankingService.reserveFunds`) to reserve funds on the customer's `Account`.
+  * *Consistency*: Synchronous/Immediate. The Payment cannot proceed if available funds don't exist.
+* **Payment / Settlement $\rightarrow$ Ledger (Accounting Posting)**:
+  * *Interaction*: When settlement occurs (or a settled posting is reversed), the orchestrating module invokes `Ledger` (`LedgerService.postTransaction` / `reverseTransaction`) synchronously.
+  * *Consistency*: Synchronous/Immediate within the local ACID transaction.
 * **Payment $\rightarrow$ Compliance**: 
   * *Interaction*: Payment publishes `PaymentCreated` event. Compliance listens, checks rules, publishes `ComplianceCleared`.
   * *Consistency*: Eventual. Payment waits in `COMPLIANCE_HOLD` state.

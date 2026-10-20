@@ -4,7 +4,7 @@ This document maps the business domains of CrossPayNet into specific, isolated s
 
 ## 1. Aggregate vs. Module Distinction
 
-* **Aggregate**: A domain consistency boundary. It guarantees that a specific set of domain objects change state together atomically to protect a business invariant (e.g., Ledger Aggregate ensures debits = credits).
+* **Aggregate**: A domain consistency boundary. It guarantees that a specific set of domain objects change state together atomically to protect a business invariant (e.g., `LedgerTransaction` ensures `sum(DEBIT) == sum(CREDIT) == totalAmount` for an individual accounting transaction).
 * **Module**: A software responsibility and dependency boundary. A module may contain multiple aggregates, application services, and infrastructure components that share a high level of cohesion.
 
 ---
@@ -12,20 +12,20 @@ This document maps the business domains of CrossPayNet into specific, isolated s
 ## 2. Defined Modules
 
 ### 2.1 Banking Module
-* **Responsibility**: Manages the identities, accounts, and limits of participants.
-* **Owns Domain Concepts**: `Bank`, `Customer`, `Account` (Aggregate).
-* **Owns Business Rules**: Account limits, KYC status checks, Account freezing.
-* **Owns Data**: Customer profiles, Account definitions.
-* **Exposes Capabilities**: Synchronous API to verify account status and available balance.
-* **Consumes Capabilities**: None fundamentally.
+* **Responsibility**: Manages the identities, accounts, operational balances (`available_balance`, `reserved_amount`), fund reservations, and limits of participants.
+* **Owns Domain Concepts**: `Bank`, `Customer`, `Account` (Aggregate Root), `FundReservation`.
+* **Owns Business Rules**: Account status checks (`ACTIVE`, `FROZEN`, `CLOSED`), operational funds reservation and release, simulator bootstrap funding.
+* **Owns Data**: Customer profiles, Account definitions, operational balances, and `fund_reservation` records in the `banking` schema.
+* **Exposes Capabilities**: Synchronous API (`BankingService`) to reserve funds and fund accounts operationally, plus the `FundsReserved` business event.
+* **Consumes Capabilities**: None fundamentally (uses Shared Kernel `common.money`).
 
 ### 2.2 Ledger Module
-* **Responsibility**: The authoritative accounting engine ensuring mathematical balance.
-* **Owns Domain Concepts**: `Ledger` (Aggregate), `LedgerEntry`, `LedgerTransaction`.
-* **Owns Business Rules**: Double-entry accounting invariant (Debits = Credits).
-* **Owns Data**: Immutable financial history.
-* **Exposes Capabilities**: Synchronous commands to post transactions or reserve funds.
-* **Consumes Capabilities**: None fundamentally.
+* **Responsibility**: The authoritative double-entry accounting engine ensuring mathematical balance and immutable financial history (planned for Phase 3, ADR-006).
+* **Owns Domain Concepts**: `LedgerTransaction` (Aggregate Root), `LedgerEntry` (immutable child line item). There is no single global `Ledger` aggregate root.
+* **Owns Business Rules**: Double-entry accounting invariants (`2..100` entries per transaction, positive unsigned `Money` amounts, explicit `DEBIT`/`CREDIT` directions, single currency per transaction, `sum(DEBIT) == sum(CREDIT) == totalAmount`, append-only immutability, full reversal rules, and posting-key idempotency).
+* **Owns Data**: Immutable `ledger_transaction` and `ledger_entry` records in the `ledger` schema. Does not own operational fund reservations.
+* **Exposes Capabilities**: Synchronous internal API (`LedgerService`: `postTransaction`, `reverseTransaction`, `getBalance`, `findTransaction`).
+* **Consumes Capabilities**: None fundamentally (uses Shared Kernel `common.money`; references accounts by plain `LedgerAccountId` without depending on `Banking`).
 
 ### 2.3 Payment Module
 * **Responsibility**: Orchestrates the end-to-end transfer of value.
@@ -33,7 +33,7 @@ This document maps the business domains of CrossPayNet into specific, isolated s
 * **Owns Business Rules**: Payment state machine transitions, validation of payment intent.
 * **Owns Data**: Payment status, history, and instructions.
 * **Exposes Capabilities**: Public API for customers to initiate/track payments; events for state changes.
-* **Consumes Capabilities**: `Banking` (verify accounts), `Ledger` (reserve funds), `Routing` (get route), `Compliance` (async evaluation), `Messaging` (dispatch).
+* **Consumes Capabilities**: `Banking` (verify accounts and reserve/release operational funds), `Ledger` (post or reverse accounting entries when applicable), `Routing` (get route), `Compliance` (async evaluation), `Messaging` (dispatch).
 
 ### 2.4 Compliance Module
 * **Responsibility**: Evaluates entities and payments against regulatory rules.
