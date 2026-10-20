@@ -43,3 +43,6 @@ env/
 *.sqlite3
 *.db
 data/
+
+# Java / Maven
+target/
