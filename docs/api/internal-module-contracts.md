@@ -39,12 +39,12 @@ Synchronous contracts are used when immediate consistency is required to satisfy
 * **Consumed By**: Payment Module / Settlement Module (future phases)
 * **Input Concepts (`PostLedgerTransactionCommand`)**:
   * `postingKey`: `LedgerPostingKey` (Required, non-blank, max 200 characters)
-  * `transactionType`: `LedgerTransactionType` (Required, e.g., `STANDARD` / `PAYMENT_SETTLEMENT`, not `REVERSAL`)
+  * `transactionType`: `LedgerTransactionType` (Required, `STANDARD` for normal postings; not `REVERSAL`)
   * `currency`: `Currency` (Required, 3-letter ISO 4217 code)
   * `totalAmount`: `Money` (Required, positive, `scale <= 4`, matching `currency`)
   * `externalReference`: `String` (Required, non-blank, max 255 characters $\rightarrow$ stored in `ledger_transaction.external_reference`)
   * `description`: `String` (Optional/nullable, max 500 characters $\rightarrow$ stored in `ledger_transaction.description`; excluded from financial fingerprint)
-  * `entries`: `List<LedgerEntryRequest>` (Required, 2 to 100 items, each with `LedgerAccountId`, `EntryDirection` (`DEBIT` or `CREDIT`), and positive unsigned `Money` amount)
+  * `entries`: `List<LedgerEntryRequest>` (Required, 2 to 100 items, each with `accountType`, `accountReference`, `EntryDirection` (`DEBIT` or `CREDIT`), and positive unsigned `Money` amount)
 * **Output Concepts (`LedgerPostingResult`)**:
   * `transactionId`: `LedgerTransactionId`
   * `status`: `PostingOutcome` (`POSTED` on first creation, or `ALREADY_POSTED` on idempotent retry with matching financial fingerprint)
@@ -55,7 +55,7 @@ Synchronous contracts are used when immediate consistency is required to satisfy
 * **Behavior**: Synchronous (`Propagation.REQUIRED`). Claims `posting_key` via `INSERT ... ON CONFLICT (posting_key) DO NOTHING` so idempotent retries and payload conflicts never abort the caller's PostgreSQL transaction. No REST endpoint is exposed.
 
 ### `Ledger.ReverseTransaction` (Planned for Phase 3 — ADR-006)
-* **Purpose**: Create a new immutable compensating `REVERSAL` transaction whose entries mirror an existing posted transaction with `DEBIT` and `CREDIT` directions flipped.
+* **Purpose**: Create a new immutable compensating `REVERSAL` transaction whose entries mirror an existing posted `STANDARD` transaction 1-for-1 (same `accountType`, `accountReference`, `currency`, and `amount`) with `DEBIT` and `CREDIT` directions flipped.
 * **Exposed By**: Ledger Module (`LedgerService.reverseTransaction`)
 * **Consumed By**: Payment Module / Settlement Module / Operations (future phases)
 * **Input Concepts (`ReverseLedgerTransactionCommand`)**:
@@ -68,7 +68,7 @@ Synchronous contracts are used when immediate consistency is required to satisfy
   * `postedAt`: `Instant`
 * **Failure Semantics**:
   * Throws `LedgerTransactionNotFoundException` if `originalTransactionId` does not exist.
-  * Throws `LedgerValidationException` if the target transaction is already a `REVERSAL` (reversal-of-reversal is prohibited).
+  * Throws `LedgerValidationException` if the target transaction is not a `STANDARD` transaction (reversal-of-reversal is prohibited in both the Java domain and PostgreSQL deferred integrity trigger).
   * Throws `LedgerReversalConflictException` (carrying the existing reversal `LedgerTransactionId`) if `originalTransactionId` was already reversed with a different `reversalReference`.
 * **Behavior**: Synchronous (`Propagation.REQUIRED`). Preserves the original transaction unchanged and uses the deterministic `REVERSAL:{originalTransactionId}` posting key with `ON CONFLICT DO NOTHING` for concurrency safety.
 
@@ -77,14 +77,14 @@ Synchronous contracts are used when immediate consistency is required to satisfy
 * **Exposed By**: Ledger Module (`LedgerService.getBalance`)
 * **Consumed By**: Settlement Module / Operations Module (future phases)
 * **Input Concepts**:
-  * `accountId`: `LedgerAccountId`
+  * `accountType` / `accountReference`: Target ledger account identifier (`LedgerAccountReference`)
   * `currency`: `Currency`
 * **Output Concepts (`AccountLedgerBalance`)**:
-  * `accountId`: `LedgerAccountId`
+  * `accountType` / `accountReference`: Target ledger account identifier (`LedgerAccountReference`)
   * `currency`: `Currency`
   * `debitTotal`: `Money` (unsigned sum of `DEBIT` entries, zero if none)
   * `creditTotal`: `Money` (unsigned sum of `CREDIT` entries, zero if none)
-  * `netBalance`: `BigDecimal` (signed net amount `creditTotal - debitTotal`, scale 4)
+  * `netBalance`: `BigDecimal` (signed net amount `debitTotal - creditTotal`, scale 4; standardized as a Phase 3 signed calculation convention, not a universal normal-balance rule across account types)
 * **Behavior**: Synchronous read-only query (`readOnly = true`). Computed on read without a mutable balance-projection table.
 
 ### `Ledger.FindTransaction` (Planned for Phase 3 — ADR-006)

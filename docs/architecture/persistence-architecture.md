@@ -47,7 +47,7 @@ Example conceptual schemas:
 *Reasoning*: Multiple schemas within the same database can safely participate in the same local ACID transaction. This provides strong physical isolation, makes cross-domain database joins obviously incorrect during code review, and drastically simplifies future selective module extraction compared to using a single `public` schema.
 
 ## E. Cross-Module Database Rules
-*   **No Cross-Module Foreign Keys**: Cross-module foreign keys are explicitly **prohibited**. Shared identifiers (e.g., `account_id` stored in `ledger.ledger_entry` or in the `payment` schema) are persisted as plain columns (`UUID`) without database-level FK constraints to `banking.account`.
+*   **No Cross-Module Foreign Keys**: Cross-module foreign keys are explicitly **prohibited**. Shared identifiers (e.g., `account_type` and `account_reference` stored in `ledger.ledger_entry`, or account identifiers in the `payment` schema) are persisted as plain columns without database-level FK constraints to `banking.account`.
 *   **No Direct Access**: Modules must never execute queries against another schema.
 *   **Enforcement**: The prohibition of cross-schema FKs is an architectural rule, not a PostgreSQL limitation. It preserves module independence. Referential integrity across boundaries is enforced by the application architecture and module APIs.
 
@@ -58,13 +58,16 @@ Example conceptual schemas:
 *   **Settlement Accounting**: Only when accounting is posted does the `Ledger` module record the immutable double-entry `LedgerTransaction` (`ledger.ledger_transaction` + `ledger.ledger_entry`), and the `Banking` module consumes the reservation.
 *   **Database-Level Ledger Integrity (Phase 3 Design, ADR-006)**:
     *   `ledger.ledger_transaction` enforces `posting_key VARCHAR(200) NOT NULL UNIQUE`, `external_reference VARCHAR(255) NOT NULL`, `description VARCHAR(500) NULL`, `reversed_transaction_id UUID NULL UNIQUE REFERENCES ledger.ledger_transaction(transaction_id)`, and `request_fingerprint CHAR(64) NOT NULL`.
-    *   Two deferred constraint triggers (`DEFERRABLE INITIALLY DEFERRED` on `ledger_transaction` and `ledger_entry`) verify at commit time that every transaction has `2..100` entries, contiguous `1..N` line numbers, matching currency, `sum(DEBIT) == sum(CREDIT) == total_amount`, and valid reversal mirroring.
+    *   Two deferred constraint triggers (`DEFERRABLE INITIALLY DEFERRED` on `ledger_transaction` and `ledger_entry`) independently verify at commit time (as defense in depth alongside pure Java domain validation):
+        1. Every transaction has `2..100` entries matching `entry_count`, distinct contiguous `1..entry_count` line numbers, matching entry and header `currency`, and `sum(DEBIT) == sum(CREDIT) == total_amount`.
+        2. For `REVERSAL` transactions: the referenced `reversed_transaction_id` exists and is a `STANDARD` transaction (`transaction_type = 'STANDARD'` and `reversed_transaction_id IS NULL`); original and reversal `currency`, `total_amount`, and `entry_count` match; every original entry has **exactly one** matching reversal entry with the same `account_type`, `account_reference`, `currency`, and `amount` and with `DEBIT` and `CREDIT` directions swapped (verified via a `FULL OUTER JOIN` comparing grouped `(account_type, account_reference, currency, amount, direction)` tuple multiplicities); and no extra or missing reversal entries exist.
+        3. Phase 3 (`CP3`) PostgreSQL integration tests will include direct-SQL test cases bypassing domain validation to verify that the deferred triggers reject zero-entry headers, unbalanced lines, and malformed or mismatched reversal entries.
     *   Append-only triggers on `ledger_transaction` and `ledger_entry` reject normal SQL `UPDATE`, `DELETE`, and `TRUNCATE` operations.
 
 ## G. Balance Persistence Strategy
 The operational `available_balance` and `reserved_amount` are maintained transactionally on the `Account` aggregate in the `banking` schema.
 *   **Reservation Tracking**: The explicit lifecycle of each reservation is tracked via the `fund_reservation` child entity table, which is updated atomically with the `Account` balances.
-*   **Authoritative Ledger Balance (Phase 3 Design, ADR-006)**: In the `ledger` schema, `debitTotal`, `creditTotal`, and `netBalance` (`creditTotal - debitTotal`) are computed on read from immutable `ledger_entry` rows using an index on `(account_id, currency)`. No separate balance-projection table is introduced in Phase 3.
+*   **Authoritative Ledger Balance (Phase 3 Design, ADR-006)**: In the `ledger` schema, `debitTotal`, `creditTotal`, and signed `netBalance` (`debitTotal - creditTotal`) are computed on read from immutable `ledger_entry` rows using an index on `(account_type, account_reference, currency)`. `netBalance = debitTotal - creditTotal` is a Phase 3 signed calculation convention; without a chart-of-accounts model, it must not be presented as the universal normal balance of every account. No separate balance-projection table is introduced in Phase 3.
 *   *Why?* Separating operational balances in `Banking` from append-only accounting entries in `Ledger` keeps reservation authorization fast and isolated while preserving an immutable double-entry audit trail. *(Note: `BankingService.fundAccount` currently funds `banking.account.available_balance` for simulation bootstrap without posting a `LedgerTransaction`; reconciliation is deferred to a later phase).*
 
 ## H. Idempotency Persistence

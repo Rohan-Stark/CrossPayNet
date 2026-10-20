@@ -25,7 +25,7 @@ This document maps the business domains of CrossPayNet into specific, isolated s
 * **Owns Business Rules**: Double-entry accounting invariants (`2..100` entries per transaction, positive unsigned `Money` amounts, explicit `DEBIT`/`CREDIT` directions, single currency per transaction, `sum(DEBIT) == sum(CREDIT) == totalAmount`, append-only immutability, full reversal rules, and posting-key idempotency).
 * **Owns Data**: Immutable `ledger_transaction` and `ledger_entry` records in the `ledger` schema. Does not own operational fund reservations.
 * **Exposes Capabilities**: Synchronous internal API (`LedgerService`: `postTransaction`, `reverseTransaction`, `getBalance`, `findTransaction`).
-* **Consumes Capabilities**: None fundamentally (uses Shared Kernel `common.money`; references accounts by plain `LedgerAccountId` without depending on `Banking`).
+* **Consumes Capabilities**: None fundamentally (uses Shared Kernel `common.money`; references accounts by plain `accountType` and `accountReference` without depending on `Banking`).
 
 ### 2.3 Payment Module
 * **Responsibility**: Orchestrates the end-to-end transfer of value.
