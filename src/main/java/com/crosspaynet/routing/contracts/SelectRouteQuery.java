@@ -28,5 +28,6 @@ public record SelectRouteQuery(
         if (!SUPPORTED_CURRENCIES.contains(currency.getCode())) {
             throw new RoutingValidationException("Unsupported routing currency: " + currency.getCode());
         }
+        destinationBic = RoutingBics.canonicalize(destinationBic);
     }
 }

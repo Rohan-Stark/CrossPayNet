@@ -20,6 +20,7 @@ import com.crosspaynet.routing.contracts.RouteContext;
 import com.crosspaynet.routing.contracts.RouteId;
 import com.crosspaynet.routing.contracts.RouteNotFoundException;
 import com.crosspaynet.routing.contracts.RouteStatus;
+import com.crosspaynet.routing.contracts.RoutingBics;
 import com.crosspaynet.routing.contracts.RoutingValidationException;
 import com.crosspaynet.routing.contracts.SelectRouteQuery;
 import com.crosspaynet.routing.domain.CorrespondentRoute;
@@ -279,9 +280,11 @@ public class RoutingService {
             throw new RoutingValidationException("Unsupported routing currency: " + currency.getCode());
         }
 
+        BicCode canonicalDestinationBic = RoutingBics.canonicalize(destinationBic);
+
         return routeRepository
                 .findByDestinationBicAndCurrencyOrderByPriorityAscRouteReferenceAsc(
-                        destinationBic.getValue(),
+                        canonicalDestinationBic.getValue(),
                         currency.getCode()
                 )
                 .stream()
@@ -348,7 +351,7 @@ public class RoutingService {
             );
         }
 
-        BicCode destinationBic = payment.instruction().beneficiary().beneficiaryBankBic();
+        BicCode destinationBic = RoutingBics.canonicalize(payment.instruction().beneficiary().beneficiaryBankBic());
         Currency currency = payment.instruction().amount().getCurrency();
 
         List<CorrespondentRouteEntity> activeCandidates = routeRepository
@@ -415,7 +418,9 @@ public class RoutingService {
                 });
 
         CorrespondentRoute historicalRoute = routeMapper.toDomain(routeEntity);
-        BicCode paymentDestinationBic = payment.instruction().beneficiary().beneficiaryBankBic();
+        BicCode paymentDestinationBic = RoutingBics.canonicalize(
+                payment.instruction().beneficiary().beneficiaryBankBic()
+        );
         Currency paymentCurrency = payment.instruction().amount().getCurrency();
 
         if (!historicalRoute.getDestinationBic().equals(paymentDestinationBic)

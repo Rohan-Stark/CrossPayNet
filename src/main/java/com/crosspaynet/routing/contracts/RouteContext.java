@@ -46,7 +46,7 @@ public record RouteContext(
         }
         if (clearingAccountReference == null
                 || clearingAccountReference.isBlank()
-                || !clearingAccountReference.equals(clearingAccountReference.trim())
+                || RoutingBics.hasLeadingOrTrailingWhitespace(clearingAccountReference)
                 || clearingAccountReference.length() > 100
                 || clearingAccountReference.codePoints().anyMatch(Character::isISOControl)) {
             throw new RoutingValidationException(
@@ -62,5 +62,7 @@ public record RouteContext(
         if (createdAt == null || updatedAt == null || updatedAt.isBefore(createdAt)) {
             throw new RoutingValidationException("createdAt and updatedAt must be non-null with updatedAt >= createdAt.");
         }
+        destinationBic = RoutingBics.canonicalize(destinationBic);
+        correspondentBic = RoutingBics.canonicalize(correspondentBic);
     }
 }

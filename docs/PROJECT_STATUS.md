@@ -63,5 +63,5 @@ Current Subphase: Local Checkpoint, Pending Acceptance Review
 * **Phase 6 (Routing)**: `com.crosspaynet.routing` owns `CorrespondentRoute` (`routing.correspondent_route`, migrations `V12`–`V13`). Routing selects routes and makes the routing decision only; it does not move money. Committed routes are replayed by reference (including inactive routes) rather than reselected. Settlement callers obtain `clearingAccountReference` via `RoutingService.findRouteByReference`.
 
 ## Verification Status
-* **Test Suite Status**: 204 full-suite tests across 30 Surefire test suites passing against PostgreSQL 18 Testcontainers (`0` failures, `0` errors, `0` skipped) with Flyway migrations `V1`–`V13`.
+* **Test Suite Status**: 207 full-suite tests across 30 Surefire test suites passing against PostgreSQL 18 Testcontainers (`0` failures, `0` errors, `0` skipped) with Flyway migrations `V1`–`V13`.
 * **Chronological Change Log**: See root [`changes.md`](../changes.md) for detailed checkpoint and corrective commit records.

@@ -604,6 +604,79 @@ class RoutingServiceIntegrationTest {
     }
 
     // =========================================================================
+    // 9. BIC Canonicalization: 8-character and 11-character forms identify one institution
+    // =========================================================================
+
+    @Test
+    void shouldTreatEightAndElevenCharacterBicsAsSameDestinationForRoutingConflictsAndReplay() {
+        // Case 1: payment with 8-char BIC uses route registered with 11-char BIC
+        BicCode eightA = new BicCode(uniqueBic("DE").getValue().substring(0, 8));
+        BicCode elevenA = new BicCode(eightA.getValue() + "XXX");
+        RouteContext routeA = routingService.registerRoute(new RegisterCorrespondentRouteCommand(
+                "ROUTE_CANON_A_" + shortId(), elevenA, SENDER_BIC, new Currency("EUR"), "NOSTRO_CANON_A", 1
+        ));
+        assertThat(routeA.destinationBic()).isEqualTo(elevenA);
+
+        AccountId accountA = createAccount("EUR", "ACTIVE", new BigDecimal("1000.0000"));
+        PaymentView paymentA = createRoutingPayment(accountA, eightA, Money.of("100.0000", "EUR"));
+        PaymentRoutingResult resultA = routingService.routePayment(paymentA.paymentId());
+        assertThat(resultA.outcome()).isEqualTo(PaymentRoutingOutcome.ROUTE_COMMITTED);
+        assertThat(resultA.selectedRoute()).contains(routeA);
+        assertThat(paymentService.findPayment(paymentA.paymentId()).orElseThrow().status())
+                .isEqualTo(PaymentStatus.EXECUTING);
+        assertReservationStatus(paymentA.reservationToken(), "ACTIVE", new BigDecimal("100.0000"), "EUR");
+
+        // Case 4: replay after a different BIC form / after deactivation returns the original route
+        routingService.registerRoute(new RegisterCorrespondentRouteCommand(
+                "ROUTE_CANON_A_BACKUP_" + shortId(), eightA, SENDER_BIC, new Currency("EUR"), "NOSTRO_CANON_A2", 2
+        ));
+        routingService.deactivateRoute(routeA.routeReference());
+        PaymentRoutingResult replayA = routingService.routePayment(paymentA.paymentId());
+        assertThat(replayA.selectedRoute().orElseThrow().routeReference()).isEqualTo(routeA.routeReference());
+        assertThat(routingService.selectRoute(new SelectRouteQuery(elevenA, new Currency("EUR"))).routeReference())
+                .startsWith("ROUTE_CANON_A_BACKUP_");
+
+        // Case 2: payment with 11-char BIC uses route registered with 8-char BIC
+        BicCode eightB = new BicCode(uniqueBic("FR").getValue().substring(0, 8));
+        BicCode elevenB = new BicCode(eightB.getValue() + "XXX");
+        RouteContext routeB = routingService.registerRoute(new RegisterCorrespondentRouteCommand(
+                "ROUTE_CANON_B_" + shortId(), eightB, SENDER_BIC, new Currency("EUR"), "NOSTRO_CANON_B", 1
+        ));
+        assertThat(routeB.destinationBic()).isEqualTo(elevenB);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT destination_bic FROM routing.correspondent_route WHERE route_reference = ?",
+                String.class, routeB.routeReference())).isEqualTo(elevenB.getValue());
+
+        AccountId accountB = createAccount("EUR", "ACTIVE", new BigDecimal("1000.0000"));
+        PaymentView paymentB = createRoutingPayment(accountB, elevenB, Money.of("50.0000", "EUR"));
+        PaymentRoutingResult resultB = routingService.routePayment(paymentB.paymentId());
+        assertThat(resultB.outcome()).isEqualTo(PaymentRoutingOutcome.ROUTE_COMMITTED);
+        assertThat(resultB.selectedRoute()).contains(routeB);
+
+        // Lookup by either form returns the same routes
+        assertThat(routingService.findRoutesForDestination(eightB, new Currency("EUR")))
+                .containsExactly(routeB);
+        assertThat(routingService.findRoutesForDestination(elevenB, new Currency("EUR")))
+                .containsExactly(routeB);
+
+        // Case 3: 8-char and 11-char forms cannot claim the same (destination, currency, priority) slot
+        assertThatThrownBy(() -> routingService.registerRoute(new RegisterCorrespondentRouteCommand(
+                "ROUTE_CANON_B_DUP_" + shortId(), elevenB, SENDER_BIC, new Currency("EUR"), "NOSTRO_CANON_B_DUP", 1
+        ))).isInstanceOf(RouteConflictException.class);
+        assertThat(routingService.findRoutesForDestination(elevenB, new Currency("EUR"))).hasSize(1);
+
+        // Idempotent replay using the other BIC form is accepted
+        assertThat(routingService.registerRoute(new RegisterCorrespondentRouteCommand(
+                routeB.routeReference(), elevenB, SENDER_BIC, new Currency("EUR"), "NOSTRO_CANON_B", 1
+        ))).isEqualTo(routeB);
+
+        // A different 11-character branch BIC is NOT equated
+        BicCode branchBic = new BicCode(eightB.getValue() + "500");
+        assertThatThrownBy(() -> routingService.selectRoute(new SelectRouteQuery(branchBic, new Currency("EUR"))))
+                .isInstanceOf(NoValidRouteException.class);
+    }
+
+    // =========================================================================
     // Helper Methods
     // =========================================================================
 

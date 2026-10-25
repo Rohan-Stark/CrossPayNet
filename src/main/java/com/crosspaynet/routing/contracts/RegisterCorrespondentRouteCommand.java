@@ -57,17 +57,23 @@ public record RegisterCorrespondentRouteCommand(
         if (clearingAccountReference == null || clearingAccountReference.isBlank()) {
             throw new RoutingValidationException("clearingAccountReference cannot be null or blank.");
         }
+        if (RoutingBics.hasLeadingOrTrailingWhitespace(clearingAccountReference)) {
+            throw new RoutingValidationException(
+                    "clearingAccountReference cannot begin or end with whitespace."
+            );
+        }
         if (clearingAccountReference.codePoints().anyMatch(Character::isISOControl)) {
             throw new RoutingValidationException(
                     "clearingAccountReference cannot contain ISO control characters."
             );
         }
-        clearingAccountReference = clearingAccountReference.trim();
         if (clearingAccountReference.length() > MAX_CLEARING_ACCOUNT_REFERENCE_LENGTH) {
             throw new RoutingValidationException(
                     "clearingAccountReference cannot exceed " + MAX_CLEARING_ACCOUNT_REFERENCE_LENGTH + " characters."
             );
         }
+        destinationBic = RoutingBics.canonicalize(destinationBic);
+        correspondentBic = RoutingBics.canonicalize(correspondentBic);
         if (priority < MIN_PRIORITY || priority > MAX_PRIORITY) {
             throw new RoutingValidationException(
                     "priority must be between " + MIN_PRIORITY + " and " + MAX_PRIORITY + "."

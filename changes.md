@@ -4,6 +4,16 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
+## 2026-10-26 — Phase 6 Corrective Update: BIC Canonicalization & Clearing-Account Whitespace Validation — *Local Checkpoint, Pending Acceptance Review*
+
+* **Problem**: Acceptance review of the Phase 6 implementation found that (1) `BicCode` accepts 8- and 11-character BICs without canonicalizing them, so Routing treated `DEUTDEFF` and `DEUTDEFFXXX` as different destinations (causing false `NO_ROUTE_AVAILABLE` rejections and allowing the unique `(destination_bic, currency, priority)` slot to be bypassed), and (2) clearing-account references with leading/trailing Unicode whitespace (e.g. U+00A0) were accepted by Routing but always rejected by `LedgerAccountRef` at settlement time.
+* **Fix (Routing module only; no migrations, no dependency changes, no other modules touched)**:
+  * Added routing-local `RoutingBics.canonicalize` (appends `XXX` to an 8-character BIC; 11-character BICs, including different branch BICs, are preserved). Applied in `RegisterCorrespondentRouteCommand` (destination and correspondent), `SelectRouteQuery`, `RouteContext`, `CorrespondentRoute.register`/`restore`, and in `RoutingService.routePayment`, `findRoutesForDestination`, and committed-route replay verification, so stored and exposed BICs are canonical and priority-slot conflicts are detected across forms.
+  * Clearing-account references are no longer silently trimmed; values whose first or last code point satisfies `Character.isWhitespace` or `Character.isSpaceChar` are rejected in `RegisterCorrespondentRouteCommand`, `CorrespondentRoute` (register and restore), and `RouteContext`, matching `LedgerAccountRef`. Internal spaces remain allowed.
+* **Tests & Verification**: Added canonicalization and Unicode-whitespace unit tests to `CorrespondentRouteTest` (now 5) and `shouldTreatEightAndElevenCharacterBicsAsSameDestinationForRoutingConflictsAndReplay` to `RoutingServiceIntegrationTest` (now 9: 8↔11-character routing in both directions, priority-slot conflict across forms, committed-route replay after deactivation, branch BICs not equated). Focused Routing suite: **21 tests passing** (`0` failures, `0` errors, `0` skipped). Full suite: **207 tests passing** (`0` failures, `0` errors, `0` skipped) with Flyway `V1`–`V13`.
+
+---
+
 ## 2026-10-26 — Phase 6: Routing & Correspondent Banking (`routing` Module) — *Local Checkpoint, Pending Acceptance Review*
 
 * **Scope**: Implemented the `routing` application module (`com.crosspaynet.routing` and `com.crosspaynet.routing.contracts` `@NamedInterface("contracts")`), depending only on `payment`, `payment :: contracts`, `common`, and `common :: money`:

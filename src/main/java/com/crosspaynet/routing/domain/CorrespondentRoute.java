@@ -5,6 +5,7 @@ import com.crosspaynet.payment.contracts.BicCode;
 import com.crosspaynet.routing.contracts.RouteContext;
 import com.crosspaynet.routing.contracts.RouteId;
 import com.crosspaynet.routing.contracts.RouteStatus;
+import com.crosspaynet.routing.contracts.RoutingBics;
 import com.crosspaynet.routing.contracts.RoutingValidationException;
 
 import java.time.Instant;
@@ -84,8 +85,8 @@ public final class CorrespondentRoute {
         return new CorrespondentRoute(
                 routeId,
                 normalizedRouteRef,
-                destinationBic,
-                correspondentBic,
+                RoutingBics.canonicalize(destinationBic),
+                RoutingBics.canonicalize(correspondentBic),
                 currency,
                 normalizedClearingRef,
                 priority,
@@ -136,7 +137,7 @@ public final class CorrespondentRoute {
         }
         if (clearingAccountReference == null
                 || clearingAccountReference.isBlank()
-                || !clearingAccountReference.equals(clearingAccountReference.trim())
+                || RoutingBics.hasLeadingOrTrailingWhitespace(clearingAccountReference)
                 || clearingAccountReference.length() > RoutingLimits.MAX_CLEARING_ACCOUNT_REFERENCE_LENGTH
                 || clearingAccountReference.codePoints().anyMatch(Character::isISOControl)) {
             throw new PersistedRouteStateException(
@@ -160,8 +161,8 @@ public final class CorrespondentRoute {
         return new CorrespondentRoute(
                 routeId,
                 routeReference,
-                destinationBic,
-                correspondentBic,
+                RoutingBics.canonicalize(destinationBic),
+                RoutingBics.canonicalize(correspondentBic),
                 currency,
                 clearingAccountReference,
                 priority,
@@ -293,12 +294,17 @@ public final class CorrespondentRoute {
         if (raw == null || raw.isBlank()) {
             throw new RoutingValidationException("clearingAccountReference cannot be null or blank.");
         }
+        if (RoutingBics.hasLeadingOrTrailingWhitespace(raw)) {
+            throw new RoutingValidationException(
+                    "clearingAccountReference cannot begin or end with whitespace."
+            );
+        }
         if (raw.codePoints().anyMatch(Character::isISOControl)) {
             throw new RoutingValidationException(
                     "clearingAccountReference cannot contain ISO control characters."
             );
         }
-        String trimmed = raw.trim();
+        String trimmed = raw;
         if (trimmed.length() > RoutingLimits.MAX_CLEARING_ACCOUNT_REFERENCE_LENGTH) {
             throw new RoutingValidationException(
                     "clearingAccountReference cannot exceed "

@@ -9,6 +9,7 @@ import com.crosspaynet.routing.contracts.RegisterCorrespondentRouteCommand;
 import com.crosspaynet.routing.contracts.RouteContext;
 import com.crosspaynet.routing.contracts.RouteId;
 import com.crosspaynet.routing.contracts.RouteStatus;
+import com.crosspaynet.routing.contracts.RoutingBics;
 import com.crosspaynet.routing.contracts.RoutingValidationException;
 import com.crosspaynet.routing.contracts.SelectRouteQuery;
 import org.junit.jupiter.api.Test;
@@ -37,7 +38,7 @@ class CorrespondentRouteTest {
                 DEST_BIC,
                 CORR_BIC,
                 EUR,
-                "  NOSTRO_EUR_CHASUS33  ",
+                "NOSTRO_EUR_CHASUS33",
                 1,
                 T0
         );
@@ -167,6 +168,59 @@ class CorrespondentRouteTest {
                 T1,
                 T0
         )).isInstanceOf(PersistedRouteStateException.class);
+    }
+
+    @Test
+    void shouldCanonicalizeEightCharacterBicsAndPreserveElevenCharacterBranchBics() {
+        BicCode eight = new BicCode("DEUTDEFF");
+        BicCode eleven = new BicCode("DEUTDEFFXXX");
+        BicCode branch = new BicCode("DEUTDEFF500");
+
+        assertThat(RoutingBics.canonicalize(eight)).isEqualTo(eleven);
+        assertThat(RoutingBics.canonicalize(eleven)).isEqualTo(eleven);
+        assertThat(RoutingBics.canonicalize(branch)).isEqualTo(branch).isNotEqualTo(eleven);
+
+        CorrespondentRoute route = CorrespondentRoute.register(
+                RouteId.generate(), "ROUTE_CANON_1", eight, new BicCode("CHASUS33"), EUR,
+                "NOSTRO_1", 1, T0
+        );
+        assertThat(route.getDestinationBic()).isEqualTo(eleven);
+        assertThat(route.getCorrespondentBic()).isEqualTo(new BicCode("CHASUS33XXX"));
+        assertThat(route.isEligibleFor(RoutingBics.canonicalize(eight), EUR)).isTrue();
+        assertThat(route.isEligibleFor(branch, EUR)).isFalse();
+        assertThat(route.toContext().destinationBic()).isEqualTo(eleven);
+
+        assertThat(new SelectRouteQuery(eight, EUR).destinationBic()).isEqualTo(eleven);
+        assertThat(new RegisterCorrespondentRouteCommand(
+                "ROUTE_CANON_2", eight, eight, EUR, "NOSTRO_1", 1
+        ).destinationBic()).isEqualTo(eleven);
+    }
+
+    @Test
+    void shouldRejectClearingAccountsWithLeadingOrTrailingWhitespaceMatchingLedgerRule() {
+        String[] invalid = {
+                "NOSTRO_1\u00A0",
+                "\u00A0NOSTRO_1",
+                "NOSTRO_1\u2003",
+                "NOSTRO_1 ",
+                " NOSTRO_1"
+        };
+        for (String value : invalid) {
+            assertThatThrownBy(() -> new RegisterCorrespondentRouteCommand(
+                    "ROUTE_WS", DEST_BIC, CORR_BIC, EUR, value, 1
+            )).isInstanceOf(RoutingValidationException.class);
+            assertThatThrownBy(() -> CorrespondentRoute.register(
+                    RouteId.generate(), "ROUTE_WS", DEST_BIC, CORR_BIC, EUR, value, 1, T0
+            )).isInstanceOf(RoutingValidationException.class);
+            assertThatThrownBy(() -> CorrespondentRoute.restore(
+                    RouteId.generate(), "ROUTE_WS", DEST_BIC, CORR_BIC, EUR, value, 1,
+                    RouteStatus.ACTIVE, T0, T0
+            )).isInstanceOf(PersistedRouteStateException.class);
+        }
+        // Internal spacing remains allowed
+        assertThat(new RegisterCorrespondentRouteCommand(
+                "ROUTE_WS", DEST_BIC, CORR_BIC, EUR, "NOSTRO 1", 1
+        ).clearingAccountReference()).isEqualTo("NOSTRO 1");
     }
 
     @Test
