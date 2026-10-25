@@ -16,15 +16,15 @@ This document defines the persistence architecture for CrossPayNet, an Evolution
 An aggregate is a consistency boundary. It determines what must be persisted together transactionally.
 
 *   **Account (Banking Module)**: Protects account status (`ACTIVE`, `FROZEN`, `CLOSED`), operational balances (`available_balance`, `reserved_amount`), and `fund_reservation` child records.
-*   **Payment (Payment Module)**: Protects state transitions (`VALIDATING` $\rightarrow$ `ROUTING` $\rightarrow$ `EXECUTING`).
+*   **Payment (Payment Module)**: Protects payment instruction immutability, deterministic SHA-256 instruction fingerprinting, the nine-state workflow lifecycle (`VALIDATING`, `COMPLIANCE_HOLD`, `ROUTING`, `EXECUTING`, `PENDING_EXTERNAL`, `SETTLED`, `REJECTED`, `CANCELLED`, `FAILED`), the Financial Commitment Point (`ROUTING -> EXECUTING`), and state-specific correlation and reason-code invariants.
 *   **LedgerTransaction (Ledger Module)**: Protects the double-entry accounting invariants (`2..100` immutable `LedgerEntry` lines, single currency, positive unsigned `Money` amounts, explicit `DEBIT`/`CREDIT` directions, and `sum(DEBIT) == sum(CREDIT) == total_amount`) for each individual accounting transaction (ADR-006). (Note: Treating the entire Ledger as one global aggregate is an anti-pattern that creates a massive concurrency bottleneck).
 *   **SettlementObligation (Settlement Module)**: Protects the inter-bank netting and liquidity state.
 
 ## C. Module Data Ownership
 Each module explicitly owns its data. No module may directly `SELECT`, `INSERT`, `UPDATE`, or `DELETE` tables owned by another module.
 *   **Banking**: Owns `customer`, `account`, and `fund_reservation` in the `banking` schema.
-*   **Payment**: Owns `payment`, `payment_instruction` in the `payment` schema.
-*   **Ledger**: Owns `ledger_transaction` and `ledger_entry` in the `ledger` schema (planned for Phase 3, ADR-006).
+*   **Payment**: Owns `payment` in the `payment` schema (`V7`–`V9`).
+*   **Ledger**: Owns `ledger_transaction` and `ledger_entry` in the `ledger` schema (ADR-006, `V4`–`V6`).
 *   **Compliance**: Owns `compliance_review`, `sanctions_list` in the `compliance` schema.
 *   **Routing**: Owns `correspondent_route` in the `routing` schema.
 *   **Settlement**: Owns `settlement_obligation` in the `settlement` schema.
@@ -64,6 +64,10 @@ Example conceptual schemas:
         2. For `REVERSAL` transactions: the referenced `reversed_transaction_id` exists and is a `STANDARD` transaction (`transaction_type = 'STANDARD'` and `reversed_transaction_id IS NULL`); original and reversal `currency`, `total_amount`, and `entry_count` match; every original entry has **exactly one** matching reversal entry with the same `account_type`, `account_reference`, `currency`, and `amount` and with `DEBIT` and `CREDIT` directions swapped (verified via a `FULL OUTER JOIN` comparing grouped `(account_type, account_reference, currency, amount, direction)` tuple multiplicities); and no extra or missing reversal entries exist.
         3. Phase 3 (`CP3`) PostgreSQL integration tests will include direct-SQL test cases bypassing domain validation to verify that the deferred triggers reject zero-entry headers, unbalanced lines, and malformed or mismatched reversal entries.
     *   Append-only triggers on `ledger_transaction` and `ledger_entry` reject normal SQL `UPDATE`, `DELETE`, and `TRUNCATE` operations.
+*   **Database-Level Payment State & Unicode Length Integrity (Phase 4 CP2)**:
+    *   `payment.payment` enforces `uk_payment_source_account_ref UNIQUE (source_account_id, payment_reference)`, unconstrained `amount NUMERIC NOT NULL` guarded by `chk_payment_amount` (`amount > 0 AND amount <= 999999999999999.9999 AND scale(trim_scale(amount)) <= 4`), `chk_payment_currency_supported`, `chk_payment_beneficiary_bic`, and `chk_payment_state_invariants` across all nine `PaymentStatus` values.
+    *   **PostgreSQL Three-Valued Logic (`UNKNOWN`) Safeguard**: Because PostgreSQL `CHECK` constraints pass when a boolean expression evaluates to `UNKNOWN` (`NULL`), every `REJECTED`, `CANCELLED`, and `FAILED` branch in `chk_payment_state_invariants` explicitly requires `status_reason_code IS NOT NULL` before evaluating `status_reason_code IN (...)` or `status_reason_code = 'CUSTOMER_CANCELLED'`.
+    *   **Java UTF-16 vs. PostgreSQL Unicode Code-Point Length Alignment (`V9__align_payment_unicode_length_constraints.sql`)**: Java domain value objects (`PaymentReference`, `BeneficiaryDetails`, `Payment`) validate maximum text lengths using `String.length()`, which counts **UTF-16 code units** (where each supplementary Unicode character in `U+10000..U+10FFFF` occupies a 2-unit surrogate pair). By contrast, PostgreSQL `VARCHAR(N)` and `char_length(...)` count **Unicode code points** (`1` per supplementary character). Without an explicit UTF-16 length check in SQL, direct SQL could insert a row containing supplementary characters whose code-point count is `<= N` but whose UTF-16 length exceeds `N`, causing `PaymentMapper.toDomain(...)` to fail with `PersistedPaymentStateException` on read. Migration `V9` aligns `chk_payment_reference_non_blank` (`<= 255`), `chk_payment_beneficiary_name` (`<= 140`), `chk_payment_beneficiary_account` (`<= 34`), `chk_payment_route_reference` (`<= 100`), `chk_payment_external_dispatch_reference` (`<= 100`), and `chk_payment_reason_detail` (`<= 500`) using `(char_length(col) + regexp_count(col, '[\U00010000-\U0010FFFF]')) <= N`, ensuring PostgreSQL enforces the exact same UTF-16 length ceiling as the Java domain.
 
 ## G. Balance Persistence Strategy
 The operational `available_balance` and `reserved_amount` are maintained transactionally on the `Account` aggregate in the `banking` schema.
@@ -80,11 +84,14 @@ CrossPayNet separates idempotency across distinct architectural layers:
     *   **Concurrent Duplicate**: If a record is `PENDING`, a concurrent identical request is rejected (`409 Conflict`).
     *   **Response Reference**: Stores the resulting **Payment reference ID** rather than a serialized HTTP response.
 2.  **Banking Reservation Idempotency (Implemented in Phase 2)**: Enforced per account via `UNIQUE (account_id, payment_reference)` on `banking.fund_reservation` and domain checks in `Account.reserveFunds(...)`.
-3.  **Ledger Posting & Reversal Idempotency (Phase 3 Design, ADR-006)**:
+3.  **Ledger Posting & Reversal Idempotency (Implemented in Phase 3, ADR-006)**:
     *   Enforced via `posting_key VARCHAR(200) NOT NULL UNIQUE` and `request_fingerprint CHAR(64) NOT NULL` on `ledger.ledger_transaction`.
     *   Standard postings use a caller-supplied `LedgerPostingKey`; reversals deterministically derive `REVERSAL:{originalTransactionId}`.
     *   Keys are claimed using `INSERT INTO ledger.ledger_transaction ... ON CONFLICT (posting_key) DO NOTHING` so duplicate or conflicting requests never abort the active PostgreSQL transaction.
     *   Same `posting_key` + matching `request_fingerprint` returns `ALREADY_POSTED` with the existing transaction ID; same `posting_key` + different `request_fingerprint` is rejected as a conflict.
+4.  **Payment Instruction Idempotency (Phase 4)**:
+    *   Enforced per source account via `uk_payment_source_account_ref UNIQUE (source_account_id, payment_reference)` and `instruction_fingerprint CHAR(64) NOT NULL` (`crosspaynet-payment-fingerprint-v1`) on `payment.payment`.
+    *   Claimed via `INSERT INTO payment.payment ... ON CONFLICT (source_account_id, payment_reference) DO NOTHING` so duplicate or conflicting claims never abort the active PostgreSQL transaction (`25P02`).
 
 ## I. Transaction Boundaries
 *   **Payment Creation + Successful Reservation**: Executed as **one local ACID transaction**. The orchestration logic begins a transaction, creates the Payment (in `payment` schema), and reserves funds (in `banking` schema). Both commit together.
@@ -100,14 +107,18 @@ CrossPayNet separates idempotency across distinct architectural layers:
 ## K. Flyway Strategy
 *   **Mechanism**: **One authoritative Flyway execution mechanism** deployed with the monolith (`classpath:db/migration`).
 *   **Organization**: Migrations use a sequential integer version scheme (`V1`, `V2`, `V3`, ...) and are strictly append-only:
-    *   **Implemented (Phase 2)**:
+    *   **Implemented (Phase 2 — Banking Foundation)**:
         *   `V1__init_system_event_registry.sql` (`system` schema and Spring Modulith `event_publication` table)
         *   `V2__init_banking_schema.sql` (`banking` schema)
         *   `V3__init_banking_tables.sql` (`banking.customer`, `banking.account`, `banking.fund_reservation`)
-    *   **Planned (Phase 3 — Ledger Foundation, ADR-006)**:
+    *   **Implemented (Phase 3 — Ledger Foundation, ADR-006)**:
         *   `V4__init_ledger_schema.sql` (`ledger` schema)
         *   `V5__init_ledger_tables.sql` (`ledger.ledger_transaction`, `ledger.ledger_entry`, constraints, and indexes)
         *   `V6__init_ledger_integrity_triggers.sql` (deferred double-entry/reversal constraint triggers and append-only immutability triggers)
+    *   **Implemented (Phase 4 CP2 — Payment Persistence)**:
+        *   `V7__init_payment_schema.sql` (`payment` schema)
+        *   `V8__init_payment_tables.sql` (`payment.payment`, state-invariant constraints, and operational indexes)
+        *   `V9__align_payment_unicode_length_constraints.sql` (aligns `payment.payment` text `CHECK` constraints with Java UTF-16 `String.length()` for supplementary Unicode characters)
 *   **Ordering**: A single execution engine ensures deterministic ordering and safety during application startup.
 
 ## L. Shared Reference Data

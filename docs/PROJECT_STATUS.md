@@ -1,7 +1,7 @@
 # Project Status
 
-Current Phase: Phase 2
-Current Subphase: Complete
+Current Phase: Phase 4 — Payment Engine & Orchestration
+Current Subphase: Checkpoint 2 (Payment Persistence & Integrity Constraints — Local Verification Complete, Pending Review)
 
 ## Completed Phases
 * Phase 0 — Engineering Constitution
@@ -22,12 +22,20 @@ Current Subphase: Complete
   * Checkpoint 3 — Pure Domain & Shared Kernel ✅
   * Checkpoint 4 — Infrastructure & Capabilities ✅
   * Checkpoint 5 — Verification ✅
+  * Banking Boundary Completion (Public Contracts & Reservation Lifecycle) ✅
+* **Phase 3 — Double-Entry Financial Ledger (ADR-006)** ✅
+  * Checkpoint 1 — Architecture & Contract Alignment ✅
+  * Checkpoint 2 — Pure Ledger Domain & Public Contracts ✅
+  * Checkpoint 3 — Flyway V4–V6 Migrations, JPA Persistence & Triggers ✅
+  * Checkpoint 4/5 — `LedgerService`, Conflict-Safe Idempotency, Reversals & Modulith Verification ✅
 
 ## Current/Next Phase
-* **Phase 3 — Double-Entry Financial Ledger** ▶ NEXT
+* **Phase 4 — Payment Engine & Orchestration** ▶ IN PROGRESS
+  * Checkpoint 1 — Pure Payment Domain, State Machine, Fingerprinting & Public Contracts ✅ (Accepted & Pushed: `3fa69c9`)
+  * Checkpoint 2 — Flyway V7–V9 Payment Persistence Schema, UTF-16 Length Alignment & PostgreSQL Integrity Constraints 🔄 (Locally Verified, Pending Acceptance Review)
+  * Checkpoint 3 — `PaymentService` Application Orchestration & End-to-End Integration Verification ○
 
 ## Upcoming Phases
-* Phase 4 — Payment Engine & Orchestration ○
 * Phase 5 — Financial Messaging ○
 * Phase 6 — Routing & Correspondent Banking ○
 * Phase 7 — Distributed Systems ○
@@ -40,8 +48,10 @@ Current Subphase: Complete
 
 ## Important Decisions
 * **Phase 0.A**: The project is strictly an educational simulator, not for real transactions.
-* **Phase 1.B**: CrossPayNet will be built as an Evolutionary Modular Monolith using Java 25 LTS, Spring Boot 4.1.1, and PostgreSQL 18.
+* **Phase 1.B**: CrossPayNet is built as an Evolutionary Modular Monolith using Java 25 LTS, Spring Boot 4.1.1, and PostgreSQL 18.
+* **Phase 3 (ADR-006)**: Immutable double-entry financial ledger using conflict-safe `INSERT ... ON CONFLICT DO NOTHING` idempotency claims, unconstrained `NUMERIC` with `scale(trim_scale(...)) <= 4` checks, and deferred PostgreSQL commit triggers.
+* **Phase 4 (CP1–CP2)**: Payment aggregate state machine (`VALIDATING`, `COMPLIANCE_HOLD`, `ROUTING`, `EXECUTING`, `PENDING_EXTERNAL`, `SETTLED`, `REJECTED`, `CANCELLED`, `FAILED`), Financial Commitment Point at `ROUTING -> EXECUTING`, and database-level state/reason/UTF-16 length invariants (`V7`–`V9`).
 
-## Known Limitations
-* Phase 2 implementation/static verification is complete.
-* Runtime Maven/PostgreSQL/Docker verification is blocked by the current host environment.
+## Recent Changes & Verification Log
+* **Phase 4 CP2 Corrective Update (`V9__align_payment_unicode_length_constraints.sql`)**: Aligned PostgreSQL `CHECK` constraints on `payment.payment` (`payment_reference`, `beneficiary_name`, `beneficiary_account_number`, `route_reference`, `external_dispatch_reference`, and `status_reason_detail`) with Java UTF-16 `String.length()` by accounting for supplementary Unicode code points (`(char_length(col) + regexp_count(col, '[\U00010000-\U0010FFFF]')) <= N`), preventing direct SQL inserts of supplementary-Unicode strings that would fail domain restoration (`PersistedPaymentStateException`).
+* **Test Suite Status**: 138 full-suite tests across 19 Surefire test suites passing against PostgreSQL 18 Testcontainers (`0` failures, `0` errors, `0` skipped).

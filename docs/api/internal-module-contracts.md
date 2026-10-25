@@ -121,6 +121,15 @@ Synchronous contracts are used when immediate consistency is required to satisfy
   * `Optional<LedgerTransactionView>` where `LedgerTransactionView` exposes `transactionId`, `transactionType` (`LedgerTransactionType { STANDARD, REVERSAL }`), `postingKey`, `currency`, `totalAmount`, `externalReference`, optional `description`, optional `reversedTransactionId`, `postedAt`, and immutable `List<LedgerEntryView>` (each `LedgerEntryView(UUID entryId, int lineNumber, LedgerAccountRef account, EntryDirection direction, Money amount)`)
 * **Behavior**: Synchronous read-only query (`readOnly = true`).
 
+### `Payment.PublicContracts` & `Payment.SettlementPort` (Phase 4 CP1–CP2)
+* **Purpose**: Provide narrow public named interfaces for Payment workflow commands/views (`payment :: contracts`) and final settlement outcome recording (`payment :: settlement`), without exposing `payment.domain` or `payment.infrastructure.persistence`.
+* **Exposed By**:
+  * `com.crosspaynet.payment.contracts` (`@NamedInterface("contracts")`): `PaymentId`, `BicCode`, `BeneficiaryDetails` (`beneficiaryName` $\le 140$ UTF-16 code units, `beneficiaryAccountNumber` $\le 34$ UTF-16 code units, `beneficiaryBankBic`), `PaymentInstruction` (`sourceAccountId`, `paymentReference` $\le 255$ UTF-16 code units, `beneficiary`, `amount`), `PaymentStatus`, `PaymentReasonCode`, `PaymentView`, command records (`InitiatePaymentCommand`, `CancelPaymentCommand`, `RejectPaymentCommand`, `CommitPaymentExecutionCommand`, `MarkPaymentDispatchedCommand`, `FailPaymentCommand`), and the `PaymentException` hierarchy (`PaymentValidationException`, `PaymentNotFoundException`, `InvalidPaymentStateException`, `PaymentReferenceConflictException`).
+  * `com.crosspaynet.payment.settlement` (`@NamedInterface("settlement")`): `PaymentSettlementPort` and `RecordPaymentSettlementCommand(PaymentId paymentId, UUID ledgerTransactionId)`.
+* **Boundary & Validation Alignment**:
+  * `Payment` does not depend on `Ledger`; final settlement orchestration (`BankingService.consumeReservation`, `LedgerService.postTransaction`, and `PaymentSettlementPort.recordSettlement`) is reserved for the `Settlement` module.
+  * Text length limits on `payment_reference` ($\le 255$), `beneficiary_name` ($\le 140$), `beneficiary_account_number` ($\le 34$), `route_reference` ($\le 100$), `external_dispatch_reference` ($\le 100$), and `status_reason_detail` ($\le 500$) are enforced consistently in both Java (`String.length()` UTF-16 code units) and PostgreSQL (`V9__align_payment_unicode_length_constraints.sql`).
+
 ## 2. Asynchronous Contracts (Domain Events)
 
 Asynchronous contracts (Spring Application Events in the monolith) are used when eventual consistency is acceptable, or to decouple side effects. Domain events are business facts, not Kafka topics. Any workflow-critical asynchronous event requires durable transactional publication to guarantee it is not lost in a crash.

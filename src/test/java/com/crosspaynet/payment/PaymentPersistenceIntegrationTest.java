@@ -651,6 +651,186 @@ class PaymentPersistenceIntegrationTest {
         );
     }
 
+    @Test
+    void shouldEnforceUtf16SupplementaryUnicodeLengthAlignmentInDatabaseConstraints() {
+        String emoji = "\uD83D\uDCB0"; // U+1F4B0 MONEY BAG: 1 Unicode code point, 2 UTF-16 code units
+        assertThat(emoji.codePointCount(0, emoji.length())).isEqualTo(1);
+        assertThat(emoji.length()).isEqualTo(2);
+
+        // 1. payment_reference: 254 ASCII + 1 supplementary = 255 code points, 256 UTF-16 code units -> rejected
+        String ref256Utf16 = "R".repeat(254) + emoji;
+        assertThat(ref256Utf16.codePointCount(0, ref256Utf16.length())).isEqualTo(255);
+        assertThat(ref256Utf16.length()).isEqualTo(256);
+        assertSqlFailureInSavepoint(
+                () -> insertRawPayment(
+                        UUID.randomUUID(),
+                        UUID.randomUUID(),
+                        ref256Utf16,
+                        VALID_DUMMY_FINGERPRINT,
+                        new BigDecimal("50.0000"),
+                        "USD",
+                        "Beneficiary",
+                        "DE89370400440532013000",
+                        "DEUTDEFFXXX",
+                        "VALIDATING",
+                        null, null, null, null, null, null,
+                        T0, T0
+                ),
+                "23514",
+                "chk_payment_reference_non_blank"
+        );
+
+        // 2. beneficiary_name: 139 ASCII + 1 supplementary = 140 code points, 141 UTF-16 code units -> rejected
+        String name141Utf16 = "N".repeat(139) + emoji;
+        assertThat(name141Utf16.codePointCount(0, name141Utf16.length())).isEqualTo(140);
+        assertThat(name141Utf16.length()).isEqualTo(141);
+        assertSqlFailureInSavepoint(
+                () -> insertRawPayment(
+                        UUID.randomUUID(),
+                        UUID.randomUUID(),
+                        "REF-UTF16-NAME",
+                        VALID_DUMMY_FINGERPRINT,
+                        new BigDecimal("50.0000"),
+                        "USD",
+                        name141Utf16,
+                        "DE89370400440532013000",
+                        "DEUTDEFFXXX",
+                        "VALIDATING",
+                        null, null, null, null, null, null,
+                        T0, T0
+                ),
+                "23514",
+                "chk_payment_beneficiary_name"
+        );
+
+        // 3. beneficiary_account_number: 33 ASCII + 1 supplementary = 34 code points, 35 UTF-16 code units -> rejected
+        String acct35Utf16 = "A".repeat(33) + emoji;
+        assertThat(acct35Utf16.codePointCount(0, acct35Utf16.length())).isEqualTo(34);
+        assertThat(acct35Utf16.length()).isEqualTo(35);
+        assertSqlFailureInSavepoint(
+                () -> insertRawPayment(
+                        UUID.randomUUID(),
+                        UUID.randomUUID(),
+                        "REF-UTF16-ACCT",
+                        VALID_DUMMY_FINGERPRINT,
+                        new BigDecimal("50.0000"),
+                        "USD",
+                        "Beneficiary",
+                        acct35Utf16,
+                        "DEUTDEFFXXX",
+                        "VALIDATING",
+                        null, null, null, null, null, null,
+                        T0, T0
+                ),
+                "23514",
+                "chk_payment_beneficiary_account"
+        );
+
+        // 4. route_reference: 99 ASCII + 1 supplementary = 100 code points, 101 UTF-16 code units -> rejected
+        String route101Utf16 = "R".repeat(99) + emoji;
+        assertThat(route101Utf16.codePointCount(0, route101Utf16.length())).isEqualTo(100);
+        assertThat(route101Utf16.length()).isEqualTo(101);
+        assertSqlFailureInSavepoint(
+                () -> insertRawPayment(
+                        UUID.randomUUID(),
+                        UUID.randomUUID(),
+                        "REF-UTF16-ROUTE",
+                        VALID_DUMMY_FINGERPRINT,
+                        new BigDecimal("50.0000"),
+                        "USD",
+                        "Beneficiary",
+                        "DE89370400440532013000",
+                        "DEUTDEFFXXX",
+                        "EXECUTING",
+                        UUID.randomUUID(), route101Utf16, null, null, null, null,
+                        T0, T1
+                ),
+                "23514",
+                "chk_payment_route_reference"
+        );
+
+        // 5. external_dispatch_reference: 99 ASCII + 1 supplementary = 100 code points, 101 UTF-16 code units -> rejected
+        String disp101Utf16 = "D".repeat(99) + emoji;
+        assertThat(disp101Utf16.codePointCount(0, disp101Utf16.length())).isEqualTo(100);
+        assertThat(disp101Utf16.length()).isEqualTo(101);
+        assertSqlFailureInSavepoint(
+                () -> insertRawPayment(
+                        UUID.randomUUID(),
+                        UUID.randomUUID(),
+                        "REF-UTF16-DISP",
+                        VALID_DUMMY_FINGERPRINT,
+                        new BigDecimal("50.0000"),
+                        "USD",
+                        "Beneficiary",
+                        "DE89370400440532013000",
+                        "DEUTDEFFXXX",
+                        "PENDING_EXTERNAL",
+                        UUID.randomUUID(), "ROUTE-OK", disp101Utf16, null, null, null,
+                        T0, T1
+                ),
+                "23514",
+                "chk_payment_external_dispatch_reference"
+        );
+
+        // 6. status_reason_detail: 499 ASCII + 1 supplementary = 500 code points, 501 UTF-16 code units -> rejected
+        String detail501Utf16 = "M".repeat(499) + emoji;
+        assertThat(detail501Utf16.codePointCount(0, detail501Utf16.length())).isEqualTo(500);
+        assertThat(detail501Utf16.length()).isEqualTo(501);
+        assertSqlFailureInSavepoint(
+                () -> insertRawPayment(
+                        UUID.randomUUID(),
+                        UUID.randomUUID(),
+                        "REF-UTF16-DETAIL",
+                        VALID_DUMMY_FINGERPRINT,
+                        new BigDecimal("50.0000"),
+                        "USD",
+                        "Beneficiary",
+                        "DE89370400440532013000",
+                        "DEUTDEFFXXX",
+                        "CANCELLED",
+                        null, null, null, null, "CUSTOMER_CANCELLED", detail501Utf16,
+                        T0, T1
+                ),
+                "23514",
+                "chk_payment_reason_detail"
+        );
+
+        // 7. Positive boundary proof: exact UTF-16 maximums with supplementary Unicode persist and restore cleanly
+        String ref255Utf16 = "R".repeat(253) + emoji;
+        String name140Utf16 = "N".repeat(138) + emoji;
+        String acct34Utf16 = "A".repeat(32) + emoji;
+        String route100Utf16 = "R".repeat(98) + emoji;
+        String disp100Utf16 = "D".repeat(98) + emoji;
+        String detail500Utf16 = "M".repeat(498) + emoji;
+        assertThat(ref255Utf16.length()).isEqualTo(255);
+        assertThat(name140Utf16.length()).isEqualTo(140);
+        assertThat(acct34Utf16.length()).isEqualTo(34);
+        assertThat(route100Utf16.length()).isEqualTo(100);
+        assertThat(disp100Utf16.length()).isEqualTo(100);
+        assertThat(detail500Utf16.length()).isEqualTo(500);
+
+        Payment unicodeBoundaryPayment = Payment.initiate(
+                PaymentId.generate(),
+                new PaymentInstruction(
+                        new AccountId(UUID.randomUUID()),
+                        new PaymentReference(ref255Utf16),
+                        new BeneficiaryDetails(name140Utf16, acct34Utf16, new BicCode("DEUTDEFFXXX")),
+                        Money.of("100.0000", "USD")
+                ),
+                T0
+        );
+        unicodeBoundaryPayment.confirmFundsReserved(new ReservationToken(UUID.randomUUID()), T1);
+        unicodeBoundaryPayment.approveCompliance(T2);
+        unicodeBoundaryPayment.commitToExecution(route100Utf16, T3);
+        unicodeBoundaryPayment.markDispatched(disp100Utf16, T4);
+        unicodeBoundaryPayment.failBeforeSettlement(
+                PaymentReasonCode.EXTERNAL_NETWORK_REJECTED,
+                detail500Utf16,
+                T5
+        );
+        assertRoundTrip(unicodeBoundaryPayment);
+    }
+
     // =========================================================================
     // E. Conflict-Safe Idempotent Claim, Optimistic Locking & Corruption Detection
     // =========================================================================
