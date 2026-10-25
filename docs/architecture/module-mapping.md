@@ -54,12 +54,14 @@ This document maps the business domains of CrossPayNet into specific, isolated s
 * **Consumes Capabilities**: None fundamentally.
 
 ### 2.6 Settlement Module
-* **Responsibility**: Manages the financial obligation and liquidity settlement process between banks, distinct from the routing path or the authoritative ledger math.
-* **Owns Domain Concepts**: `SettlementBatch`, `LiquidityObligation`.
-* **Owns Business Rules**: Netting rules, Nostro/Vostro account reconciliation logic.
-* **Owns Data**: Settlement status, obligation records.
-* **Exposes Capabilities**: APIs/Events for settling aggregated obligations.
-* **Consumes Capabilities**: `Ledger` (to record the actual settlement entries), `Routing` (to know the relationship context).
+* **Responsibility**: Coordinates the atomic financial settlement of dispatched (`PENDING_EXTERNAL`) payments across the `Banking`, `Ledger`, and `Payment` modules without duplicating state already owned by those aggregates.
+* **Owns Domain Concepts**: Settlement orchestration contracts (`SettlePaymentCommand`, `SettlementResult`, `SettlementException`, `SettlementValidationException`, `SettlementConflictException` in `com.crosspaynet.settlement.contracts`) and deterministic settlement posting key derivation (`PAYMENT_SETTLEMENT:{paymentId}`).
+* **Owns Business Rules**: Requires an explicit caller-supplied `INTERNAL` clearing account reference (`clearingAccountReference`) and confirmed external settlement acknowledgment reference (`settlementReference`) rather than inferring accounting targets from `routeReference`; enforces atomic consumption of the operational Banking reservation (`ACTIVE -> CONSUMED`), single-currency double-entry Ledger posting (`DEBIT` `BANKING_ACCOUNT` `sourceAccountId`, `CREDIT` `INTERNAL` `clearingAccountReference`), and Payment settlement state recording (`PENDING_EXTERNAL -> SETTLED`); and verifies fingerprint/transaction-ID consistency on idempotent replays of already-`SETTLED` payments.
+* **Owns Data**: Stateless orchestrator in the current checkpoint; persists durable state through `banking.fund_reservation`, `ledger.ledger_transaction` / `ledger.ledger_entry`, and `payment.payment` within a single shared database transaction.
+* **Exposes Capabilities**:
+  * Root application service `SettlementService` (`com.crosspaynet.settlement.SettlementService`): `settlePayment(SettlePaymentCommand)` and `postingKeyFor(PaymentId)`.
+  * Narrow public contracts in `com.crosspaynet.settlement.contracts` (`@NamedInterface("contracts")`).
+* **Consumes Capabilities**: `Banking` (`BankingService.consumeReservation` via `banking` and `banking :: contracts`), `Ledger` (`LedgerService.postTransaction` via `ledger`), `Payment` (`PaymentService.findPayment` and `PaymentSettlementPort.recordSettlement` via `payment`, `payment :: contracts`, and `payment :: settlement`), and Shared Kernel (`common`, `common :: money`).
 
 ### 2.7 Network/Messaging Module
 * **Responsibility**: Translates domain intents into physical wire artifacts and manages network transmission.

@@ -137,8 +137,28 @@ Synchronous contracts are used when immediate consistency is required to satisfy
   * `com.crosspaynet.payment.contracts` (`@NamedInterface("contracts")`): `PaymentId`, `BicCode`, `BeneficiaryDetails` (`beneficiaryName` $\le 140$ UTF-16 code units, `beneficiaryAccountNumber` $\le 34$ UTF-16 code units, `beneficiaryBankBic`), `PaymentInstruction` (`sourceAccountId`, `paymentReference` $\le 255$ UTF-16 code units, `beneficiary`, `amount`), `PaymentStatus`, `PaymentReasonCode`, `PaymentView`, command records (`InitiatePaymentCommand`, `CancelPaymentCommand`, `RejectPaymentCommand`, `CommitPaymentExecutionCommand`, `MarkPaymentDispatchedCommand`, `FailPaymentCommand`), and the `PaymentException` hierarchy (`PaymentValidationException`, `PaymentNotFoundException`, `InvalidPaymentStateException`, `PaymentReferenceConflictException`).
   * `com.crosspaynet.payment.settlement` (`@NamedInterface("settlement")`): `PaymentSettlementPort` and `RecordPaymentSettlementCommand(PaymentId paymentId, UUID ledgerTransactionId)`.
 * **Boundary & Validation Alignment**:
-  * `Payment` does not depend on `Ledger`; final settlement orchestration (`BankingService.consumeReservation`, `LedgerService.postTransaction`, and `PaymentSettlementPort.recordSettlement`) is reserved for the future `Settlement` module.
+  * `Payment` does not depend on `Ledger`; final settlement orchestration (`BankingService.consumeReservation`, `LedgerService.postTransaction`, and `PaymentSettlementPort.recordSettlement`) is owned by the `Settlement` module.
   * Text length limits on `payment_reference` ($\le 255$), `beneficiary_name` ($\le 140$), `beneficiary_account_number` ($\le 34$), `route_reference` ($\le 100$), `external_dispatch_reference` ($\le 100$), and `status_reason_detail` ($\le 500$) are enforced consistently in both Java (`String.length()` UTF-16 code units) and PostgreSQL (`V9__align_payment_unicode_length_constraints.sql`).
+
+### `Settlement.SettlePayment` & `Settlement.PublicContracts`
+* **Purpose**: Atomically finalize financial settlement for a dispatched (`PENDING_EXTERNAL`) payment by consuming its operational Banking reservation, posting a balanced double-entry Ledger transaction, and recording the resulting `ledgerTransactionId` on the Payment aggregate.
+* **Exposed By**:
+  * `com.crosspaynet.settlement.SettlementService`:
+    * `settlePayment(SettlePaymentCommand)`: `@Transactional(propagation = Propagation.REQUIRED)`.
+    * `postingKeyFor(PaymentId)`: Deterministically derives `LedgerPostingKey.of("PAYMENT_SETTLEMENT:" + paymentId.getValue())`.
+  * `com.crosspaynet.settlement.contracts` (`@NamedInterface("contracts")`):
+    * `SettlePaymentCommand(PaymentId paymentId, String clearingAccountReference, String settlementReference)`: Validates `paymentId != null`, validates `clearingAccountReference` via `LedgerAccountRef.of(LedgerAccountType.INTERNAL, clearingAccountReference)` (trimmed, non-blank, `1..100` Unicode code points, no ISO control characters), and validates/trims `settlementReference` (non-blank, $\le 255$ characters, no ISO control characters). Never infers `clearingAccountReference` from `PaymentView.routeReference()`.
+    * `SettlementResult(PaymentId paymentId, ReservationToken reservationToken, LedgerTransactionId ledgerTransactionId, PostingOutcome ledgerPostingOutcome, PaymentView payment, Instant settledAt)`.
+    * `SettlementException` $\rightarrow$ `SettlementValidationException` $\rightarrow$ `SettlementConflictException`.
+* **Consumed By**: Internal settlement callers / Network acknowledgment handlers / Operations.
+* **Behavior & Failure Semantics**:
+  * **Preconditions**: Loads `PaymentView` via `PaymentService.findPayment(paymentId)` (throws `PaymentNotFoundException` if absent). Rejects any status other than `PENDING_EXTERNAL` or `SETTLED` with `InvalidPaymentStateException` before performing any Banking or Ledger write.
+  * **Atomic Execution Sequence (`PENDING_EXTERNAL`)**:
+    1. `BankingService.consumeReservation(sourceAccountId, reservationToken)` (`ACTIVE -> CONSUMED`).
+    2. `LedgerService.postTransaction(PostLedgerTransactionCommand)` with key `PAYMENT_SETTLEMENT:{paymentId}`, currency `payment.instruction().amount().getCurrency()`, two balanced lines (`DEBIT` `BANKING_ACCOUNT` `sourceAccountId.getValue().toString()`, `CREDIT` `INTERNAL` `clearingAccountReference`), `externalReference = settlementReference`, and `description = "Settlement for payment " + paymentId.getValue()`.
+    3. `PaymentSettlementPort.recordSettlement(new RecordPaymentSettlementCommand(paymentId, ledgerResult.transactionId().getValue()))` (`PENDING_EXTERNAL -> SETTLED`).
+  * **Rollback Safety**: Any runtime exception or error during the mutation sequence explicitly marks the active Spring transaction rollback-only (`TransactionAspectSupport.currentTransactionStatus().setRollbackOnly()`) before rethrowing, guaranteeing that `BankingService.consumeReservation`, `LedgerService.postTransaction`, and `PaymentSettlementPort.recordSettlement` roll back together even when `LedgerValidationException` (`noRollbackFor` on `LedgerService.postTransaction`) is caught by an outer caller.
+  * **Idempotent Replay vs. Conflict (`SETTLED`)**: When the payment is already `SETTLED`, re-evaluates `LedgerService.postTransaction` with key `PAYMENT_SETTLEMENT:{paymentId}` to verify the financial fingerprint (`clearingAccountReference` and `settlementReference`; throws `LedgerPostingKeyConflictException` on mismatch), verifies that `ledgerResult.outcome() == PostingOutcome.ALREADY_POSTED` and `ledgerResult.transactionId().getValue().equals(payment.ledgerTransactionId())` (throws `SettlementConflictException` on mismatch), ensures `BankingService.consumeReservation` and `PaymentSettlementPort.recordSettlement` are idempotently satisfied, and returns `SettlementResult` with `PostingOutcome.ALREADY_POSTED`.
 
 ## 2. Asynchronous Contracts (Domain Events)
 

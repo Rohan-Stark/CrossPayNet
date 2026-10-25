@@ -24,9 +24,9 @@ CrossPayNet is implemented as an **Evolutionary Modular Monolith** (Java 25 LTS,
 * **Banking Module (`banking`, `banking :: contracts`)**: Customer accounts, operational balances (`available_balance`, `reserved_amount`), and idempotent fund reservation lifecycle (`ACTIVE -> RELEASED | CONSUMED`) in the `banking` schema (`V2`–`V3`).
 * **Ledger Module (`ledger`)**: Immutable double-entry financial ledger (`STANDARD` and `REVERSAL` transactions, `2..100` balanced lines, conflict-safe `INSERT ... ON CONFLICT DO NOTHING` idempotency, append-only and deferred commit integrity triggers) in the `ledger` schema (`V4`–`V6`, ADR-006).
 * **Payment Module (`payment`, `payment :: contracts`, `payment :: settlement`)**: Pure payment domain aggregate, nine-state workflow machine, Financial Commitment Point (`ROUTING -> EXECUTING`), SHA-256 instruction fingerprinting (`CP1`), PostgreSQL persistence with state, reason-code, and UTF-16 Unicode length constraints in the `payment` schema (`V7`–`V9`, `CP2`), and transactional `PaymentService` orchestration with conflict-safe idempotency, synchronous fund reservation, atomic reservation release, and `PaymentSettlementPort` (`CP3`).
+* **Settlement Module (`settlement`, `settlement :: contracts`)**: Transactional `SettlementService` orchestrating atomic operational fund reservation consumption (`BankingService.consumeReservation`), conflict-safe double-entry ledger posting (`LedgerService.postTransaction` with deterministic key `PAYMENT_SETTLEMENT:{paymentId}`), and final payment settlement recording (`PaymentSettlementPort.recordSettlement`).
 
 ## Planned Capabilities
-* Cross-module Settlement coordination (reservation consumption, double-entry ledger posting, and settlement recording)
 * ISO 20022-inspired financial messaging
 * Payment routing and correspondent banking simulation
 * Security and digital signatures
