@@ -6,6 +6,7 @@ import com.crosspaynet.payment.domain.Payment;
 import com.crosspaynet.payment.domain.PaymentLimits;
 import com.crosspaynet.payment.domain.PaymentSupportedCurrencyPolicy;
 import com.crosspaynet.payment.domain.PersistedPaymentStateException;
+import com.crosspaynet.payment.settlement.PaymentSettlementPort;
 import org.junit.jupiter.api.Test;
 import org.springframework.modulith.core.ApplicationModule;
 import org.springframework.modulith.core.ApplicationModules;
@@ -15,6 +16,7 @@ import java.lang.annotation.Annotation;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -141,6 +143,50 @@ class PaymentArchitectureTest {
         assertEquals(
                 Set.of("USD", "EUR", "GBP", "INR", "JPY", "CHF", "SGD", "AED"),
                 PaymentSupportedCurrencyPolicy.supportedCodes()
+        );
+    }
+
+    @Test
+    void testPaymentServicePlacementAndSettlementPortContract() throws IOException {
+        assertEquals("com.crosspaynet.payment", PaymentService.class.getPackageName());
+        assertTrue(Modifier.isPublic(PaymentService.class.getModifiers()));
+        assertTrue(PaymentSettlementPort.class.isAssignableFrom(PaymentService.class));
+
+        // Verify public methods of PaymentService never leak internal domain or persistence types
+        for (Method method : PaymentService.class.getDeclaredMethods()) {
+            if (Modifier.isPublic(method.getModifiers())) {
+                assertFalse(
+                        method.getReturnType().getName().startsWith("com.crosspaynet.payment.domain."),
+                        () -> "Public method " + method.getName() + " must not return internal domain type"
+                );
+                assertFalse(
+                        method.getReturnType().getName().startsWith("com.crosspaynet.payment.infrastructure."),
+                        () -> "Public method " + method.getName() + " must not return internal persistence type"
+                );
+                for (Class<?> paramType : method.getParameterTypes()) {
+                    assertFalse(
+                            paramType.getName().startsWith("com.crosspaynet.payment.domain."),
+                            () -> "Public method " + method.getName() + " must not accept internal domain type"
+                    );
+                    assertFalse(
+                            paramType.getName().startsWith("com.crosspaynet.payment.infrastructure."),
+                            () -> "Public method " + method.getName() + " must not accept internal persistence type"
+                    );
+                }
+            }
+        }
+
+        // Verify PaymentService source does not invoke BankingService.consumeReservation or LedgerService
+        Path serviceSourcePath = Path.of("src", "main", "java", "com", "crosspaynet", "payment", "PaymentService.java");
+        assertTrue(Files.isRegularFile(serviceSourcePath), "PaymentService.java must exist");
+        String serviceSource = Files.readString(serviceSourcePath);
+        assertFalse(
+                serviceSource.contains("consumeReservation"),
+                "PaymentService must not invoke BankingService.consumeReservation"
+        );
+        assertFalse(
+                serviceSource.contains("LedgerService") || serviceSource.contains("postTransaction"),
+                "PaymentService must not invoke LedgerService or postTransaction"
         );
     }
 

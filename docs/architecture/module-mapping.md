@@ -28,12 +28,14 @@ This document maps the business domains of CrossPayNet into specific, isolated s
 * **Consumes Capabilities**: None fundamentally (uses Shared Kernel `common.money`; references accounts by plain `accountType` and `accountReference` without depending on `Banking`).
 
 ### 2.3 Payment Module
-* **Responsibility**: Orchestrates the end-to-end transfer of value.
-* **Owns Domain Concepts**: `PaymentInstruction`, `Payment` (Aggregate).
-* **Owns Business Rules**: Payment state machine transitions, validation of payment intent.
-* **Owns Data**: Payment status, history, and instructions.
-* **Exposes Capabilities**: Public API for customers to initiate/track payments; events for state changes.
-* **Consumes Capabilities**: `Banking` (verify accounts and reserve/release operational funds), `Ledger` (post or reverse accounting entries when applicable), `Routing` (get route), `Compliance` (async evaluation), `Messaging` (dispatch).
+* **Responsibility**: Orchestrates the cross-border payment lifecycle and enforces the Financial Commitment Point (`ROUTING -> EXECUTING`).
+* **Owns Domain Concepts**: `Payment` (Aggregate Root), `PaymentInstruction`, `InstructionFingerprint`, `PaymentLimits`, `PaymentSupportedCurrencyPolicy` (`com.crosspaynet.payment.domain`).
+* **Owns Business Rules**: Nine-state payment state machine (`VALIDATING`, `COMPLIANCE_HOLD`, `ROUTING`, `EXECUTING`, `PENDING_EXTERNAL`, `SETTLED`, `REJECTED`, `CANCELLED`, `FAILED`), SHA-256 instruction fingerprinting, pre-commitment vs. post-commitment transition rules, and atomic reservation release on pre-commitment cancellation/rejection and confirmed post-commitment pre-settlement failure.
+* **Owns Data**: `payment.payment` records in the `payment` schema (`V7`–`V9`), mapped via `PaymentEntity`, `PaymentMapper`, and `PaymentRepository` (`com.crosspaynet.payment.infrastructure.persistence`).
+* **Exposes Capabilities**:
+  * Root application service `PaymentService` (`com.crosspaynet.payment.PaymentService`): `initiatePayment`, `approveCompliance`, `commitToExecution`, `markDispatched`, `cancelPayment`, `rejectPayment`, `failPayment`, `recordSettlement`, `findPayment`, and `findBySourceAccountAndReference`.
+  * Narrow public contracts in `com.crosspaynet.payment.contracts` (`@NamedInterface("contracts")`) and settlement port `PaymentSettlementPort` in `com.crosspaynet.payment.settlement` (`@NamedInterface("settlement")`).
+* **Consumes Capabilities**: `Banking` (`BankingService.reserveFunds` and `BankingService.releaseReservation` via `banking` and `banking :: contracts`) and Shared Kernel (`common`, `common :: money`). Does **not** depend on `Ledger` or call `BankingService.consumeReservation` (owned by the future `Settlement` module).
 
 ### 2.4 Compliance Module
 * **Responsibility**: Evaluates entities and payments against regulatory rules.

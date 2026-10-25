@@ -1,7 +1,7 @@
 # Project Status
 
 Current Phase: Phase 4 — Payment Engine & Orchestration
-Current Subphase: Checkpoint 2 Accepted & Published (Checkpoint 3 `PaymentService` Orchestration Next)
+Current Subphase: Checkpoint 3 (`PaymentService` Orchestration & Integration Verification — Local/Unpublished, Pending Review)
 
 ## Completed Phases
 * Phase 0 — Engineering Constitution
@@ -33,12 +33,12 @@ Current Subphase: Checkpoint 2 Accepted & Published (Checkpoint 3 `PaymentServic
 * **Phase 4 — Payment Engine & Orchestration** ▶ IN PROGRESS
   * Checkpoint 1 — Pure Payment Domain, State Machine, Fingerprinting & Public Contracts ✅ (Accepted & Pushed: `3fa69c9`)
   * Checkpoint 2 — Flyway V7–V9 Payment Persistence Schema, UTF-16 Length Alignment & PostgreSQL Integrity Constraints ✅ (Accepted & Pushed: `b8688ef`, `676d7eb`)
-  * Checkpoint 3 — `PaymentService` Application Orchestration & End-to-End Integration Verification ▶ NEXT
+  * Checkpoint 3 — `PaymentService` Application Orchestration & End-to-End Integration Verification ✅ (Local/Unpublished, Pending Review)
 
 ## Upcoming Phases
 * Phase 5 — Financial Messaging ○
 * Phase 6 — Routing & Correspondent Banking ○
-* Phase 7 — Distributed Systems ○
+* Phase 7 — Distributed Systems & Settlement Orchestration ○
 * Phase 8 — Security & Compliance
 * Phase 9 — Observability & Operations
 * Phase 10 — AI Anomaly Detection
@@ -50,8 +50,8 @@ Current Subphase: Checkpoint 2 Accepted & Published (Checkpoint 3 `PaymentServic
 * **Phase 0.A**: The project is strictly an educational simulator, not for real transactions.
 * **Phase 1.B**: CrossPayNet is built as an Evolutionary Modular Monolith using Java 25 LTS, Spring Boot 4.1.1, and PostgreSQL 18.
 * **Phase 3 (ADR-006)**: Immutable double-entry financial ledger using conflict-safe `INSERT ... ON CONFLICT DO NOTHING` idempotency claims, unconstrained `NUMERIC` with `scale(trim_scale(...)) <= 4` checks, and deferred PostgreSQL commit triggers.
-* **Phase 4 (CP1–CP2)**: Payment aggregate state machine (`VALIDATING`, `COMPLIANCE_HOLD`, `ROUTING`, `EXECUTING`, `PENDING_EXTERNAL`, `SETTLED`, `REJECTED`, `CANCELLED`, `FAILED`), Financial Commitment Point at `ROUTING -> EXECUTING`, and database-level state/reason/UTF-16 length invariants (`V7`–`V9`).
+* **Phase 4 (CP1–CP3)**: Payment aggregate state machine (`VALIDATING`, `COMPLIANCE_HOLD`, `ROUTING`, `EXECUTING`, `PENDING_EXTERNAL`, `SETTLED`, `REJECTED`, `CANCELLED`, `FAILED`), Financial Commitment Point at `ROUTING -> EXECUTING`, database-level state/reason/UTF-16 length invariants (`V7`–`V9`), and transactional `PaymentService` orchestration with conflict-safe `(source_account_id, payment_reference)` idempotency and atomic Banking reservation release (`cancelPayment`, `rejectPayment`, `failPayment`). Final settlement coordination (`BankingService.consumeReservation`, `LedgerService.postTransaction`, and `PaymentSettlementPort.recordSettlement`) remains owned by the future Settlement module.
 
 ## Verification Status
-* **Test Suite Status**: 138 full-suite tests across 19 Surefire test suites passing against PostgreSQL 18 Testcontainers (`0` failures, `0` errors, `0` skipped) with Flyway migrations `V1`–`V9`.
+* **Test Suite Status**: 152 full-suite tests across 20 Surefire test suites passing against PostgreSQL 18 Testcontainers (`0` failures, `0` errors, `0` skipped) with Flyway migrations `V1`–`V9`.
 * **Chronological Change Log**: See root [`changes.md`](../changes.md) for detailed checkpoint and corrective commit records.
