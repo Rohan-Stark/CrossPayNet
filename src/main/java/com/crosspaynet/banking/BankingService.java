@@ -1,9 +1,14 @@
 package com.crosspaynet.banking;
 
+import com.crosspaynet.banking.contracts.AccountId;
+import com.crosspaynet.banking.contracts.AccountNotFoundException;
+import com.crosspaynet.banking.contracts.CurrencyMismatchException;
+import com.crosspaynet.banking.contracts.InsufficientFundsException;
+import com.crosspaynet.banking.contracts.InvalidAccountStateException;
+import com.crosspaynet.banking.contracts.InvalidReservationStateException;
+import com.crosspaynet.banking.contracts.PaymentReference;
+import com.crosspaynet.banking.contracts.ReservationToken;
 import com.crosspaynet.banking.domain.Account;
-import com.crosspaynet.banking.domain.AccountId;
-import com.crosspaynet.banking.domain.PaymentReference;
-import com.crosspaynet.banking.domain.ReservationToken;
 import com.crosspaynet.banking.infrastructure.persistence.AccountEntity;
 import com.crosspaynet.banking.infrastructure.persistence.AccountMapper;
 import com.crosspaynet.banking.infrastructure.persistence.AccountRepository;
@@ -26,34 +31,114 @@ public class BankingService {
 
     /**
      * Reserves funds synchronously. Participates in the caller's transaction context.
-     * The caller (e.g., Payment module) is responsible for controlling transaction-wide retry semantics.
+     *
+     * <p>Pre-write business rejections are configured with {@code noRollbackFor} so the caller (e.g., Payment module)
+     * can catch business rejections, transition the payment to {@code REJECTED}, and commit the audit trail.
+     * Corrupted persisted state, optimistic-locking conflicts, persistence errors, and unexpected runtime exceptions
+     * always mark the transaction for rollback.
      */
-    @Transactional(propagation = Propagation.REQUIRED)
+    @Transactional(
+            propagation = Propagation.REQUIRED,
+            noRollbackFor = {
+                    AccountNotFoundException.class,
+                    InsufficientFundsException.class,
+                    InvalidAccountStateException.class,
+                    CurrencyMismatchException.class,
+                    InvalidReservationStateException.class
+            }
+    )
     public ReservationToken reserveFunds(AccountId accountId, Money amount, PaymentReference paymentReference) {
+        if (accountId == null) {
+            throw new IllegalArgumentException("AccountId cannot be null.");
+        }
+        if (amount == null) {
+            throw new IllegalArgumentException("Amount cannot be null.");
+        }
+        if (paymentReference == null) {
+            throw new IllegalArgumentException("PaymentReference cannot be null.");
+        }
+
         AccountEntity entity = accountRepository.findById(accountId.getValue())
-                .orElseThrow(() -> new IllegalArgumentException("Account not found."));
+                .orElseThrow(() -> new AccountNotFoundException(accountId));
 
         Account domainAccount = AccountMapper.toDomain(entity);
+        int priorReservationCount = domainAccount.getReservations().size();
         ReservationToken token = domainAccount.reserveFunds(amount, paymentReference);
-        
-        AccountMapper.updateEntity(domainAccount, entity);
 
+        if (domainAccount.getReservations().size() == priorReservationCount) {
+            return token;
+        }
+
+        AccountMapper.updateEntity(domainAccount, entity);
         accountRepository.save(entity);
 
         eventPublisher.publishEvent(new FundsReserved(
-                accountId.getValue(), 
-                token.getValue(), 
-                paymentReference.getValue(), 
+                accountId.getValue(),
+                token.getValue(),
+                paymentReference.getValue(),
                 amount
         ));
 
         return token;
     }
 
+    /**
+     * Releases an operational fund reservation ({@code ACTIVE -> RELEASED}) and restores available balance.
+     * Idempotent if the reservation is already {@code RELEASED}.
+     */
+    @Transactional(propagation = Propagation.REQUIRED)
+    public void releaseReservation(AccountId accountId, ReservationToken reservationToken) {
+        if (accountId == null) {
+            throw new IllegalArgumentException("AccountId cannot be null.");
+        }
+        if (reservationToken == null) {
+            throw new IllegalArgumentException("ReservationToken cannot be null.");
+        }
+
+        AccountEntity entity = accountRepository.findById(accountId.getValue())
+                .orElseThrow(() -> new AccountNotFoundException(accountId));
+
+        Account domainAccount = AccountMapper.toDomain(entity);
+        domainAccount.releaseReservation(reservationToken);
+
+        AccountMapper.updateEntity(domainAccount, entity);
+        accountRepository.save(entity);
+    }
+
+    /**
+     * Consumes an operational fund reservation ({@code ACTIVE -> CONSUMED}) and decrements reserved amount.
+     * Idempotent if the reservation is already {@code CONSUMED}.
+     */
+    @Transactional(propagation = Propagation.REQUIRED)
+    public void consumeReservation(AccountId accountId, ReservationToken reservationToken) {
+        if (accountId == null) {
+            throw new IllegalArgumentException("AccountId cannot be null.");
+        }
+        if (reservationToken == null) {
+            throw new IllegalArgumentException("ReservationToken cannot be null.");
+        }
+
+        AccountEntity entity = accountRepository.findById(accountId.getValue())
+                .orElseThrow(() -> new AccountNotFoundException(accountId));
+
+        Account domainAccount = AccountMapper.toDomain(entity);
+        domainAccount.consumeReservation(reservationToken);
+
+        AccountMapper.updateEntity(domainAccount, entity);
+        accountRepository.save(entity);
+    }
+
     @Transactional(propagation = Propagation.REQUIRED)
     public void fundAccount(AccountId accountId, Money amount) {
+        if (accountId == null) {
+            throw new IllegalArgumentException("AccountId cannot be null.");
+        }
+        if (amount == null) {
+            throw new IllegalArgumentException("Amount cannot be null.");
+        }
+
         AccountEntity entity = accountRepository.findById(accountId.getValue())
-                .orElseThrow(() -> new IllegalArgumentException("Account not found."));
+                .orElseThrow(() -> new AccountNotFoundException(accountId));
 
         Account domainAccount = AccountMapper.toDomain(entity);
         domainAccount.fundSimulator(amount);

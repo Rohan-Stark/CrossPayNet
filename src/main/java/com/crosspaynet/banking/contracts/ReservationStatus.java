@@ -1,4 +1,4 @@
-package com.crosspaynet.banking.domain;
+package com.crosspaynet.banking.contracts;
 
 public enum ReservationStatus {
     ACTIVE,

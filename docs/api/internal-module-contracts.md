@@ -10,16 +10,42 @@ Synchronous contracts are used when immediate consistency is required to satisfy
 
 ### `Banking.ReserveFunds`
 * **Purpose**: Ensure sufficient liquidity exists and place a temporary hold on a customer's available balance.
-* **Exposed By**: Banking Module
+* **Exposed By**: Banking Module (`BankingService.reserveFunds`)
 * **Consumed By**: Payment Module
-* **Input Concepts**: 
-  * `AccountNumber` (Target account)
-  * `Money` (Amount & Currency)
-  * `Reference` (e.g., Payment ID requesting the hold)
+* **Input Concepts**:
+  * `AccountId` (`com.crosspaynet.banking.contracts.AccountId` — Target account)
+  * `Money` (`com.crosspaynet.common.money.Money` — Strictly positive amount & currency)
+  * `PaymentReference` (`com.crosspaynet.banking.contracts.PaymentReference` — Non-empty trimmed reference up to 255 characters, e.g., Payment ID requesting the hold)
 * **Output Concepts**:
-  * `ReservationToken` (Proof of hold, required for final settlement)
-* **Failure Semantics**: Throws domain exceptions (`InsufficientFundsException`, `AccountFrozenException`).
-* **Behavior**: Synchronous. Automatically rolls back the surrounding database transaction if it fails.
+  * `ReservationToken` (`com.crosspaynet.banking.contracts.ReservationToken` — Proof of hold, required for release or consumption)
+* **Failure Semantics** (Public exceptions in `com.crosspaynet.banking.contracts`, rooted at `BankingException extends RuntimeException`):
+  * Throws pre-write business exceptions (`AccountNotFoundException`, `InsufficientFundsException`, `InvalidAccountStateException`, `CurrencyMismatchException`, `InvalidReservationStateException`) when business preconditions fail before any write.
+* **Behavior**: Synchronous (`Propagation.REQUIRED`). Idempotent if an `ACTIVE` reservation already exists for the same `(accountId, paymentReference)` and `Money` amount (returning the existing `ReservationToken` without publishing a duplicate `FundsReserved` event). Only the specified pre-write business exceptions (`AccountNotFoundException`, `InsufficientFundsException`, `InvalidAccountStateException`, `CurrencyMismatchException`, `InvalidReservationStateException`) are configured with `noRollbackFor` so they do not mark the shared caller transaction rollback-only, allowing the Payment module to catch the business rejection, transition the Payment to `REJECTED`, and commit the audit trail (per `persistence-architecture.md` §I). Corrupted persisted state (`PersistedBankingStateException`), invalid/null caller arguments (`IllegalArgumentException`), optimistic-locking failures, database/integrity failures, and unexpected runtime errors always mark the surrounding transaction for rollback.
+
+### `Banking.ReleaseReservation`
+* **Purpose**: Release an active operational fund reservation (`ACTIVE -> RELEASED`) and restore the held amount from `reservedAmount` back to `availableBalance`.
+* **Exposed By**: Banking Module (`BankingService.releaseReservation`)
+* **Consumed By**: Payment Module / Compliance Module / Operations Module
+* **Input Concepts**:
+  * `AccountId` (`com.crosspaynet.banking.contracts.AccountId`)
+  * `ReservationToken` (`com.crosspaynet.banking.contracts.ReservationToken`)
+* **Failure Semantics**:
+  * Throws `AccountNotFoundException` if the account does not exist.
+  * Throws `InvalidReservationStateException` if the reservation token does not exist on the account or if the reservation is already `CONSUMED` (`CONSUMED -> RELEASED` is prohibited).
+* **Behavior**: Synchronous (`Propagation.REQUIRED`). Idempotent no-op if the reservation is already `RELEASED`. Permitted on an `ACTIVE` reservation even if the account has since been frozen or closed so held funds are not trapped on payment rejection. Updates the existing `FundReservationEntity` in place without deleting reservation history.
+
+### `Banking.ConsumeReservation`
+* **Purpose**: Consume an active operational fund reservation (`ACTIVE -> CONSUMED`) upon settlement and decrement `reservedAmount` while keeping `availableBalance` deducted.
+* **Exposed By**: Banking Module (`BankingService.consumeReservation`)
+* **Consumed By**: Payment Module / Settlement Module
+* **Input Concepts**:
+  * `AccountId` (`com.crosspaynet.banking.contracts.AccountId`)
+  * `ReservationToken` (`com.crosspaynet.banking.contracts.ReservationToken`)
+* **Failure Semantics**:
+  * Throws `AccountNotFoundException` if the account does not exist.
+  * Throws `InvalidReservationStateException` if the reservation token does not exist on the account or if the reservation is already `RELEASED` (`RELEASED -> CONSUMED` is prohibited).
+  * Throws `InvalidAccountStateException` if an `ACTIVE` reservation is consumed while the account is not `ACTIVE` (`FROZEN` or `CLOSED`).
+* **Behavior**: Synchronous (`Propagation.REQUIRED`). Idempotent no-op if the reservation is already `CONSUMED` (checked prior to account-status validation). Updates the existing `FundReservationEntity` in place without deleting reservation history.
 
 ### `Routing.SelectRoute`
 * **Purpose**: Determine the valid correspondent banking path for a cross-border transfer.

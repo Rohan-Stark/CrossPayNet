@@ -1,24 +1,24 @@
-package com.crosspaynet.banking.domain;
+package com.crosspaynet.banking.contracts;
 
 import java.util.Objects;
 import java.util.UUID;
 
-public final class AccountId {
+public final class ReservationToken {
     private final UUID value;
 
-    public AccountId(UUID value) {
+    public ReservationToken(UUID value) {
         if (value == null) {
-            throw new IllegalArgumentException("AccountId value cannot be null.");
+            throw new IllegalArgumentException("ReservationToken value cannot be null.");
         }
         this.value = value;
     }
 
-    public static AccountId generate() {
-        return new AccountId(UUID.randomUUID());
+    public static ReservationToken generate() {
+        return new ReservationToken(UUID.randomUUID());
     }
 
-    public static AccountId of(String uuid) {
-        return new AccountId(UUID.fromString(uuid));
+    public static ReservationToken of(String uuid) {
+        return new ReservationToken(UUID.fromString(uuid));
     }
 
     public UUID getValue() {
@@ -29,8 +29,8 @@ public final class AccountId {
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-        AccountId accountId = (AccountId) o;
-        return Objects.equals(value, accountId.value);
+        ReservationToken token = (ReservationToken) o;
+        return Objects.equals(value, token.value);
     }
 
     @Override
