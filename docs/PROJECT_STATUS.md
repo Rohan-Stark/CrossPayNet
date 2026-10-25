@@ -52,6 +52,6 @@ Current Subphase: Checkpoint 2 (Payment Persistence & Integrity Constraints — 
 * **Phase 3 (ADR-006)**: Immutable double-entry financial ledger using conflict-safe `INSERT ... ON CONFLICT DO NOTHING` idempotency claims, unconstrained `NUMERIC` with `scale(trim_scale(...)) <= 4` checks, and deferred PostgreSQL commit triggers.
 * **Phase 4 (CP1–CP2)**: Payment aggregate state machine (`VALIDATING`, `COMPLIANCE_HOLD`, `ROUTING`, `EXECUTING`, `PENDING_EXTERNAL`, `SETTLED`, `REJECTED`, `CANCELLED`, `FAILED`), Financial Commitment Point at `ROUTING -> EXECUTING`, and database-level state/reason/UTF-16 length invariants (`V7`–`V9`).
 
-## Recent Changes & Verification Log
-* **Phase 4 CP2 Corrective Update (`V9__align_payment_unicode_length_constraints.sql`)**: Aligned PostgreSQL `CHECK` constraints on `payment.payment` (`payment_reference`, `beneficiary_name`, `beneficiary_account_number`, `route_reference`, `external_dispatch_reference`, and `status_reason_detail`) with Java UTF-16 `String.length()` by accounting for supplementary Unicode code points (`(char_length(col) + regexp_count(col, '[\U00010000-\U0010FFFF]')) <= N`), preventing direct SQL inserts of supplementary-Unicode strings that would fail domain restoration (`PersistedPaymentStateException`).
-* **Test Suite Status**: 138 full-suite tests across 19 Surefire test suites passing against PostgreSQL 18 Testcontainers (`0` failures, `0` errors, `0` skipped).
+## Verification Status
+* **Test Suite Status**: 138 full-suite tests across 19 Surefire test suites passing against PostgreSQL 18 Testcontainers (`0` failures, `0` errors, `0` skipped) with Flyway migrations `V1`–`V9`.
+* **Chronological Change Log**: See root [`changes.md`](../changes.md) for detailed checkpoint and corrective commit records.
