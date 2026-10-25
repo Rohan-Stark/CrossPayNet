@@ -4,7 +4,7 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
-## 2026-10-25 — Settlement Module: Transactional Settlement Orchestration — *Local Checkpoint, Pending Acceptance Review*
+## 2026-10-25 — Settlement Module: Transactional Settlement Orchestration (`a59e11db3fe7c2e9cd7fcee3681a7fea740c98ac`) — *Accepted & Published to `origin/main`*
 
 * **Scope**: Implemented the `settlement` application module (`com.crosspaynet.settlement` and `com.crosspaynet.settlement.contracts` `@NamedInterface("contracts")`) to coordinate atomic cross-module settlement across `Banking`, `Ledger`, and `Payment` without new database tables or schema migrations:
   * **Contracts (`SettlePaymentCommand`, `SettlementResult`, `SettlementException` hierarchy)**: Defined `SettlePaymentCommand(PaymentId paymentId, String clearingAccountReference, String settlementReference)` requiring an explicit caller-supplied `INTERNAL` clearing account reference (validated via `LedgerAccountRef.of(LedgerAccountType.INTERNAL, clearingAccountReference)`) and trimmed external settlement acknowledgment reference ($\le 255$ characters, non-blank, no ISO control characters), never inferring the clearing account from `routeReference`.

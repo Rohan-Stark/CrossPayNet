@@ -1,7 +1,7 @@
 # Project Status
 
 Current Phase: Settlement Module — Transactional Settlement Orchestration
-Current Subphase: Local Checkpoint Complete, Pending Acceptance Review (`SettlementService` Orchestration)
+Current Subphase: Accepted & Published (`SettlementService` Orchestration Complete)
 
 ## Completed Phases
 * Phase 0 — Engineering Constitution
@@ -32,7 +32,7 @@ Current Subphase: Local Checkpoint Complete, Pending Acceptance Review (`Settlem
   * Checkpoint 1 — Pure Payment Domain, State Machine, Fingerprinting & Public Contracts ✅ (Accepted & Pushed: `3fa69c9`)
   * Checkpoint 2 — Flyway V7–V9 Payment Persistence Schema, UTF-16 Length Alignment & PostgreSQL Integrity Constraints ✅ (Accepted & Pushed: `b8688ef`, `676d7eb`)
   * Checkpoint 3 — `PaymentService` Application Orchestration & End-to-End Integration Verification ✅ (Accepted & Pushed: `547fcaa`)
-* **Settlement Module — Cross-Module Settlement Orchestration** ⏳ (Local Checkpoint Complete, Pending Review)
+* **Settlement Module — Cross-Module Settlement Orchestration** ✅ (Accepted & Pushed: `a59e11d`)
   * `SettlementService` (`settlePayment`), `SettlePaymentCommand`, `SettlementResult`, and `SettlementException` hierarchy coordinating `BankingService.consumeReservation`, `LedgerService.postTransaction`, and `PaymentSettlementPort.recordSettlement` atomically.
 
 ## Current/Next Phase
