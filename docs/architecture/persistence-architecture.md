@@ -27,7 +27,7 @@ Each module explicitly owns its data. No module may directly `SELECT`, `INSERT`,
 *   **Payment**: Owns `payment` in the `payment` schema (`V7`–`V9`).
 *   **Ledger**: Owns `ledger_transaction` and `ledger_entry` in the `ledger` schema (ADR-006, `V4`–`V6`).
 *   **Compliance**: Owns `compliance_review`, `sanctions_list` in the `compliance` schema.
-*   **Routing**: Owns `correspondent_route` in the `routing` schema.
+*   **Routing**: Owns `correspondent_route` in the `routing` schema (`V12`–`V13`).
 *   **Settlement**: Stateless orchestrator in the current checkpoint; future netting extensions own `settlement_obligation` in the `settlement` schema.
 *   **Network/Messaging**: Owns `payment_message` in the `messaging` schema (`V10`–`V11`).
 *   **Operations/Audit**: Owns `audit_event`, `dispute_case` in the `operations` schema.
@@ -100,6 +100,9 @@ CrossPayNet separates idempotency across distinct architectural layers:
 5.  **Per-Attempt Financial Message Dispatch Idempotency (Phase 5)**:
     *   Enforced per payment and attempt via `uk_payment_message_payment_attempt UNIQUE (payment_id, attempt_number)` and `uk_payment_message_idempotency_key UNIQUE (idempotency_key)` (`MSG:{paymentId}:ATTEMPT:{attemptNumber}`) on `messaging.payment_message`.
     *   Claimed via `INSERT INTO messaging.payment_message ... ON CONFLICT DO NOTHING` so concurrent duplicate dispatch requests return the existing `PaymentMessageView` (or throw `MessageConflictException` if `senderBic` differs) without aborting the active PostgreSQL transaction.
+6.  **Correspondent Route Registration Idempotency (Phase 6)**:
+    *   Enforced via `uk_correspondent_route_reference UNIQUE (route_reference)` and `uk_correspondent_route_dest_ccy_priority UNIQUE (destination_bic, currency, priority)` on `routing.correspondent_route`, which also guarantees deterministic, tie-free selection ordering.
+    *   Claimed via `INSERT INTO routing.correspondent_route ... ON CONFLICT DO NOTHING`; identical active registrations return the existing route, and conflicting claims throw `RouteConflictException` without aborting the caller's transaction. The table enforces BIC, supported-currency, priority (`1..1000`), status, timestamp, and UTF-16-aligned length checks, with zero cross-schema foreign keys.
 
 ## I. Transaction Boundaries
 *   **Payment Creation + Successful Reservation**: Executed as **one local ACID transaction**. The orchestration logic begins a transaction, creates the Payment (in `payment` schema), and reserves funds (in `banking` schema). Both commit together.
@@ -130,6 +133,9 @@ CrossPayNet separates idempotency across distinct architectural layers:
     *   **Implemented (Phase 5 — Financial Messaging Persistence)**:
         *   `V10__init_messaging_schema.sql` (`messaging` schema)
         *   `V11__init_messaging_tables.sql` (`messaging.payment_message`, per-attempt uniqueness, payload digest, state-invariant, and UTF-16 length constraints, and operational indexes)
+    *   **Implemented (Phase 6 — Routing Persistence)**:
+        *   `V12__init_routing_schema.sql` (`routing` schema)
+        *   `V13__init_routing_tables.sql` (`routing.correspondent_route`, uniqueness, integrity and UTF-16 length constraints, and lookup index)
 *   **Ordering**: A single execution engine ensures deterministic ordering and safety during application startup.
 
 ## L. Shared Reference Data

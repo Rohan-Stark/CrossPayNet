@@ -47,17 +47,17 @@ Synchronous contracts are used when immediate consistency is required to satisfy
   * Throws `InvalidAccountStateException` if an `ACTIVE` reservation is consumed while the account is not `ACTIVE` (`FROZEN` or `CLOSED`).
 * **Behavior**: Synchronous (`Propagation.REQUIRED`). Idempotent no-op if the reservation is already `CONSUMED` (checked prior to account-status validation). Updates the existing `FundReservationEntity` in place without deleting reservation history.
 
-### `Routing.SelectRoute`
-* **Purpose**: Determine the valid correspondent banking path for a cross-border transfer.
-* **Exposed By**: Routing Module
-* **Consumed By**: Payment Module
-* **Input Concepts**:
-  * `DestinationBic`
-  * `Currency`
-* **Output Concepts**:
-  * `RouteContext` (Selected correspondent BIC, path details)
-* **Failure Semantics**: Throws `NoValidRouteException`.
-* **Behavior**: Synchronous read-only query.
+### `Routing.SelectRoute`, `Routing.RoutePayment` & `Routing.PublicContracts` (Phase 6)
+* **Purpose**: Select the correspondent route for a cross-border transfer and record the routing decision on the Payment.
+* **Exposed By**: `com.crosspaynet.routing.RoutingService`:
+  * `selectRoute(SelectRouteQuery(BicCode destinationBic, Currency currency))`: `@Transactional(readOnly = true)`. Returns the first `ACTIVE` route matching both values ordered by `priority ASC, routeReference ASC`; throws `NoValidRouteException` if none.
+  * `registerRoute(RegisterCorrespondentRouteCommand)`: `@Transactional(noRollbackFor = RouteConflictException.class)`. Conflict-safe `INSERT ... ON CONFLICT DO NOTHING`; identical active registration replays; conflicting `routeReference` or `(destinationBic, currency, priority)` throws `RouteConflictException` before any write.
+  * `activateRoute(String)` / `deactivateRoute(String)`: idempotent `ACTIVE <-> INACTIVE`; `RouteNotFoundException` if absent.
+  * `findRouteByReference(String)` (includes inactive routes) and `findRoutesForDestination(BicCode, Currency)`: read-only.
+  * `routePayment(PaymentId)`: `@Transactional(propagation = Propagation.REQUIRED)`. For `ROUTING` payments, calls `PaymentService.commitToExecution` (`ROUTE_COMMITTED`) or `PaymentService.rejectPayment(NO_ROUTE_AVAILABLE)` (`REJECTED_NO_ROUTE`, releasing the Banking reservation atomically). For `EXECUTING`, `PENDING_EXTERNAL`, `SETTLED`, or `FAILED`, returns the originally committed route by reference without reselecting; throws `RouteConflictException` if it cannot be resolved or mismatches the instruction. Replays `REJECTED (NO_ROUTE_AVAILABLE)`; other states throw `InvalidPaymentStateException` before side effects. Failures mark the transaction rollback-only.
+* **Contracts** (`com.crosspaynet.routing.contracts`, `@NamedInterface("contracts")`): `RouteId`, `RouteStatus`, `RouteContext` (including `clearingAccountReference`), `RegisterCorrespondentRouteCommand`, `SelectRouteQuery`, `PaymentRoutingOutcome`, `PaymentRoutingResult`, and `RoutingException` → `RoutingValidationException` → `RouteConflictException`; `RouteNotFoundException`; `NoValidRouteException`.
+* **Consumed By**: Internal orchestration callers; settlement callers resolve `clearingAccountReference` via `findRouteByReference` and pass it to `SettlementService.settlePayment`.
+* **Boundary**: Routing depends only on `payment`, `payment :: contracts`, `common`, and `common :: money`.
 
 ### `Ledger.PostTransaction` (Planned for Phase 3 — ADR-006)
 * **Purpose**: Atomically validate and persist a balanced, single-currency double-entry `STANDARD` accounting transaction in the `ledger` schema.

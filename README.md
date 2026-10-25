@@ -26,9 +26,9 @@ CrossPayNet is implemented as an **Evolutionary Modular Monolith** (Java 25 LTS,
 * **Payment Module (`payment`, `payment :: contracts`, `payment :: settlement`)**: Pure payment domain aggregate, nine-state workflow machine, Financial Commitment Point (`ROUTING -> EXECUTING`), SHA-256 instruction fingerprinting (`CP1`), PostgreSQL persistence with state, reason-code, and UTF-16 Unicode length constraints in the `payment` schema (`V7`–`V9`, `CP2`), and transactional `PaymentService` orchestration with conflict-safe idempotency, synchronous fund reservation, atomic reservation release, and `PaymentSettlementPort` (`CP3`).
 * **Settlement Module (`settlement`, `settlement :: contracts`)**: Transactional `SettlementService` orchestrating atomic operational fund reservation consumption (`BankingService.consumeReservation`), conflict-safe double-entry ledger posting (`LedgerService.postTransaction` with deterministic key `PAYMENT_SETTLEMENT:{paymentId}`), and final payment settlement recording (`PaymentSettlementPort.recordSettlement`).
 * **Messaging Module (`messaging`, `messaging :: contracts`)**: ISO 20022-inspired (`pacs.008.001.08`) wire message generation (`Pacs008PayloadBuilder`), SHA-256 payload integrity digest (`PayloadDigest`, `crosspaynet-message-digest-v1`), PostgreSQL persistence (`messaging.payment_message`, `V10`–`V11`), and transactional `MessagingService` orchestration with per-attempt conflict-safe dispatch, timeout-gated retries, atomic NACK failure handling, and ACK/settlement boundary separation.
+* **Routing Module (`routing`, `routing :: contracts`)**: Correspondent route registry in the `routing` schema (`V12`–`V13`), deterministic route selection by destination BIC, currency, and priority, and `RoutingService.routePayment` committing payments to execution or rejecting them with `NO_ROUTE_AVAILABLE` and atomic reservation release.
 
 ## Planned Capabilities
-* Payment routing and correspondent banking simulation
 * Security and digital signatures
 * Compliance and risk simulation
 * Kafka/event-driven processing

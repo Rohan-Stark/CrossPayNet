@@ -1,7 +1,7 @@
 # Project Status
 
-Current Phase: Phase 5 — Financial Messaging (`messaging` Module)
-Current Subphase: Accepted & Published (`MessagingService` Orchestration Complete)
+Current Phase: Phase 6 — Routing & Correspondent Banking (`routing` Module)
+Current Subphase: Local Checkpoint, Pending Acceptance Review
 
 ## Completed Phases
 * Phase 0 — Engineering Constitution
@@ -37,11 +37,13 @@ Current Subphase: Accepted & Published (`MessagingService` Orchestration Complet
 * **Phase 5 — Financial Messaging (`messaging` Module)** ✅ (Accepted & Pushed: `148775b`)
   * Pure `PaymentMessage` domain (`GENERATED -> SIGNED -> SENT -> ACKNOWLEDGED | NACKNOWLEDGED | TIMEOUT`), deterministic ISO 20022-inspired `pacs.008.001.08` payload builder (`Pacs008PayloadBuilder`), SHA-256 payload integrity digest (`PayloadDigest`, `crosspaynet-message-digest-v1`), Flyway `V10`–`V11` persistence in `messaging.payment_message`, and transactional `MessagingService` orchestration with per-attempt conflict-safe idempotency, timeout-driven retry attempts, atomic NACK failure handling, and strict separation between message acknowledgment and financial settlement.
 
+* **Phase 6 — Routing & Correspondent Banking (`routing` Module)** 🔄 *(Local Checkpoint, Pending Acceptance Review)*
+  * `CorrespondentRoute` domain, Flyway `V12`–`V13` persistence in `routing.correspondent_route`, deterministic route selection (`ACTIVE`, matching BIC and currency, `priority ASC, routeReference ASC`), conflict-safe route registration, and `RoutingService.routePayment` orchestrating `ROUTING -> EXECUTING` or `ROUTING -> REJECTED (NO_ROUTE_AVAILABLE)` with atomic reservation release and committed-route replay.
+
 ## Current/Next Phase
-* **Phase 6 — Routing & Correspondent Banking** ▶ NEXT
+* **Phase 7 — Distributed Systems, Kafka & Reliability** ▶ NEXT (after Phase 6 acceptance)
 
 ## Upcoming Phases
-* Phase 6 — Routing & Correspondent Banking ○
 * Phase 7 — Distributed Systems & Advanced Settlement Extensions ○
 * Phase 8 — Security & Compliance
 * Phase 9 — Observability & Operations
@@ -58,6 +60,8 @@ Current Subphase: Accepted & Published (`MessagingService` Orchestration Complet
 * **Settlement Module**: Stateless transactional orchestrator (`SettlementService.settlePayment`) that requires an explicit `INTERNAL` `clearingAccountReference` and external `settlementReference` (never inferring the clearing account from `routeReference`), posts a balanced 2-line `STANDARD` ledger entry (`DEBIT` `BANKING_ACCOUNT` `sourceAccountId`, `CREDIT` `INTERNAL` `clearingAccountReference`) under deterministic key `PAYMENT_SETTLEMENT:{paymentId}`, and coordinates reservation consumption, ledger posting, and payment settlement recording atomically within a single ACID transaction.
 * **Phase 5 (Financial Messaging)**: `com.crosspaynet.messaging` owns `PaymentMessage` (`messaging.payment_message`, migrations `V10`–`V11`), generating deterministic `pacs.008.001.08` payloads and `crosspaynet-message-digest-v1` SHA-256 integrity digests (verified on sign and database restoration). Network retries (`attemptNumber > 1`) are tracked as independent `PaymentMessage` records after a preceding `TIMEOUT` while preserving `Payment`'s original `externalDispatchReference` from attempt `1`. Positive acknowledgment (`ACKNOWLEDGED`) does not settle the payment or post ledger entries (`SettlementService.settlePayment` remains the explicit settlement boundary); negative acknowledgment (`NACKNOWLEDGED`) atomically invokes `PaymentService.failPayment` (`EXTERNAL_NETWORK_REJECTED`).
 
+* **Phase 6 (Routing)**: `com.crosspaynet.routing` owns `CorrespondentRoute` (`routing.correspondent_route`, migrations `V12`–`V13`). Routing selects routes and makes the routing decision only; it does not move money. Committed routes are replayed by reference (including inactive routes) rather than reselected. Settlement callers obtain `clearingAccountReference` via `RoutingService.findRouteByReference`.
+
 ## Verification Status
-* **Test Suite Status**: 186 full-suite tests across 26 Surefire test suites passing against PostgreSQL 18 Testcontainers (`0` failures, `0` errors, `0` skipped) with Flyway migrations `V1`–`V11`.
+* **Test Suite Status**: 204 full-suite tests across 30 Surefire test suites passing against PostgreSQL 18 Testcontainers (`0` failures, `0` errors, `0` skipped) with Flyway migrations `V1`–`V13`.
 * **Chronological Change Log**: See root [`changes.md`](../changes.md) for detailed checkpoint and corrective commit records.

@@ -45,13 +45,15 @@ This document maps the business domains of CrossPayNet into specific, isolated s
 * **Exposes Capabilities**: Async events (`ComplianceCleared`, `ComplianceRejected`).
 * **Consumes Capabilities**: Listens to `PaymentCreated` events from the Payment module.
 
-### 2.5 Routing Module
-* **Responsibility**: Determines the path used to move a payment across the network.
-* **Owns Domain Concepts**: `Route`, `CorrespondentRelationship`.
-* **Owns Business Rules**: Route calculation, relationship validation, currency support checks.
-* **Owns Data**: Correspondent relationship definitions and topology.
-* **Exposes Capabilities**: Synchronous API to calculate the optimal route for a payment.
-* **Consumes Capabilities**: None fundamentally.
+### 2.5 Routing Module (`com.crosspaynet.routing`)
+* **Responsibility**: Selects the correspondent route for a payment and records the routing decision through Payment's public API. Does not move money or post ledger entries.
+* **Owns Domain Concepts**: `CorrespondentRoute` (Aggregate Root), `RoutingLimits`, `PersistedRouteStateException` (`com.crosspaynet.routing.domain`).
+* **Owns Business Rules**: Route eligibility (`ACTIVE`, matching destination BIC and currency), deterministic selection (`priority ASC, routeReference ASC`), unique route references and `(destinationBic, currency, priority)` slots, `ACTIVE <-> INACTIVE` lifecycle, and replay of an already-committed route by reference.
+* **Owns Data**: `routing.correspondent_route` (`V12`–`V13`), mapped via `CorrespondentRouteEntity`, `CorrespondentRouteMapper`, and `CorrespondentRouteRepository`.
+* **Exposes Capabilities**:
+  * `RoutingService`: `registerRoute`, `activateRoute`, `deactivateRoute`, `selectRoute`, `findRouteByReference`, `findRoutesForDestination`, and `routePayment`.
+  * `com.crosspaynet.routing.contracts` (`@NamedInterface("contracts")`): `RouteId`, `RouteStatus`, `RouteContext`, `RegisterCorrespondentRouteCommand`, `SelectRouteQuery`, `PaymentRoutingOutcome`, `PaymentRoutingResult`, and the `RoutingException` hierarchy (`RoutingValidationException`, `RouteConflictException`, `RouteNotFoundException`, `NoValidRouteException`).
+* **Consumes Capabilities**: `Payment` (`findPayment`, `commitToExecution`, `rejectPayment` via `payment` and `payment :: contracts`) and Shared Kernel (`common`, `common :: money`). Does **not** depend on `Banking`, `Ledger`, `Messaging`, or `Settlement`.
 
 ### 2.6 Settlement Module
 * **Responsibility**: Coordinates the atomic financial settlement of dispatched (`PENDING_EXTERNAL`) payments across the `Banking`, `Ledger`, and `Payment` modules without duplicating state already owned by those aggregates.
