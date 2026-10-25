@@ -4,7 +4,7 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
-## 2026-10-25 — Phase 5: Financial Messaging (`messaging` Module) — *Local Checkpoint, Pending Acceptance Review*
+## 2026-10-25 — Phase 5: Financial Messaging (`messaging` Module) (`148775b339cdbd0561c91eeba32a3252ec323dab`) — *Accepted & Published to `origin/main`*
 
 * **Scope**: Implemented the `messaging` application module (`com.crosspaynet.messaging` and `com.crosspaynet.messaging.contracts` `@NamedInterface("contracts")`) to manage ISO 20022-inspired (`pacs.008.001.08`) wire message generation, SHA-256 payload integrity digests (`crosspaynet-message-digest-v1`), PostgreSQL persistence (`V10`–`V11`), and transactional dispatch/acknowledgment/timeout orchestration (`MessagingService`):
   * **Pure Domain & ISO 20022-Inspired Payload Generation (`PaymentMessage`, `Pacs008PayloadBuilder`, `PayloadDigest`, `MessagingLimits`)**: Implemented the pure-Java `PaymentMessage` aggregate root (`GENERATED -> SIGNED -> SENT -> ACKNOWLEDGED | NACKNOWLEDGED | TIMEOUT`), deterministic `pacs.008.001.08` payload construction (`Pacs008PayloadBuilder` with UTF-8 byte-length-prefixed token encoding), and `PayloadDigest` (`crosspaynet-message-digest-v1` 64-character lowercase hex SHA-256 integrity digest — explicitly documented as an educational tamper-detection digest, not a cryptographic digital signature). `PaymentMessage.restore(...)` re-computes `Pacs008PayloadBuilder` and `PayloadDigest` on every database read, rejecting tampered payloads or mismatched digests with `PersistedMessageStateException`.

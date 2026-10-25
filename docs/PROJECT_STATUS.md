@@ -1,7 +1,7 @@
 # Project Status
 
 Current Phase: Phase 5 — Financial Messaging (`messaging` Module)
-Current Subphase: Local Checkpoint, Pending Acceptance Review
+Current Subphase: Accepted & Published (`MessagingService` Orchestration Complete)
 
 ## Completed Phases
 * Phase 0 — Engineering Constitution
@@ -34,11 +34,11 @@ Current Subphase: Local Checkpoint, Pending Acceptance Review
   * Checkpoint 3 — `PaymentService` Application Orchestration & End-to-End Integration Verification ✅ (Accepted & Pushed: `547fcaa`)
 * **Settlement Module — Cross-Module Settlement Orchestration** ✅ (Accepted & Pushed: `a59e11d`)
   * `SettlementService` (`settlePayment`), `SettlePaymentCommand`, `SettlementResult`, and `SettlementException` hierarchy coordinating `BankingService.consumeReservation`, `LedgerService.postTransaction`, and `PaymentSettlementPort.recordSettlement` atomically.
-* **Phase 5 — Financial Messaging (`messaging` Module)** 🔄 *(Local Checkpoint, Pending Acceptance Review)*
+* **Phase 5 — Financial Messaging (`messaging` Module)** ✅ (Accepted & Pushed: `148775b`)
   * Pure `PaymentMessage` domain (`GENERATED -> SIGNED -> SENT -> ACKNOWLEDGED | NACKNOWLEDGED | TIMEOUT`), deterministic ISO 20022-inspired `pacs.008.001.08` payload builder (`Pacs008PayloadBuilder`), SHA-256 payload integrity digest (`PayloadDigest`, `crosspaynet-message-digest-v1`), Flyway `V10`–`V11` persistence in `messaging.payment_message`, and transactional `MessagingService` orchestration with per-attempt conflict-safe idempotency, timeout-driven retry attempts, atomic NACK failure handling, and strict separation between message acknowledgment and financial settlement.
 
 ## Current/Next Phase
-* **Phase 6 — Routing & Correspondent Banking** ▶ NEXT (after Phase 5 acceptance)
+* **Phase 6 — Routing & Correspondent Banking** ▶ NEXT
 
 ## Upcoming Phases
 * Phase 6 — Routing & Correspondent Banking ○
