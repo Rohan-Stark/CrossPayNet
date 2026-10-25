@@ -63,13 +63,15 @@ This document maps the business domains of CrossPayNet into specific, isolated s
   * Narrow public contracts in `com.crosspaynet.settlement.contracts` (`@NamedInterface("contracts")`).
 * **Consumes Capabilities**: `Banking` (`BankingService.consumeReservation` via `banking` and `banking :: contracts`), `Ledger` (`LedgerService.postTransaction` via `ledger`), `Payment` (`PaymentService.findPayment` and `PaymentSettlementPort.recordSettlement` via `payment`, `payment :: contracts`, and `payment :: settlement`), and Shared Kernel (`common`, `common :: money`).
 
-### 2.7 Network/Messaging Module
-* **Responsibility**: Translates domain intents into physical wire artifacts and manages network transmission.
-* **Owns Domain Concepts**: `PaymentMessage` (e.g., ISO 20022 `pacs.008`).
-* **Owns Business Rules**: Message formatting, network retries, parsing ACKs/NACKs.
-* **Owns Data**: Raw message payloads, transmission logs.
-* **Exposes Capabilities**: Async command to dispatch a message; Async events for delivery status.
-* **Consumes Capabilities**: None (acts on commands from `Payment`).
+### 2.7 Network/Messaging Module (`com.crosspaynet.messaging`)
+* **Responsibility**: Translates committed `Payment` instructions into deterministic ISO 20022-inspired (`pacs.008.001.08`) wire artifacts, computes and verifies SHA-256 payload integrity digests (`crosspaynet-message-digest-v1`), tracks independent per-attempt transmission state, and coordinates network dispatch, positive/negative peer acknowledgments, and transmission timeouts.
+* **Owns Domain Concepts**: `PaymentMessage` (Aggregate Root), `Pacs008PayloadBuilder`, `PayloadDigest`, `MessagingLimits`, `PersistedMessageStateException` (`com.crosspaynet.messaging.domain`).
+* **Owns Business Rules**: Six-state message lifecycle (`GENERATED -> SIGNED -> SENT -> ACKNOWLEDGED | NACKNOWLEDGED | TIMEOUT`), deterministic `pacs.008.001.08` payload construction and SHA-256 integrity digest verification on signing and database restoration, per-attempt idempotency (`MSG:{paymentId}:ATTEMPT:{attemptNumber}`), timeout-gated retry attempts (`attemptNumber > 1` requires attempt `attemptNumber - 1` in `TIMEOUT` while preserving `Payment`'s initial `externalDispatchReference`), atomic `PaymentService.failPayment` (`EXTERNAL_NETWORK_REJECTED`) on negative acknowledgment (`NACKNOWLEDGED`), and strict separation between positive acknowledgment (`ACKNOWLEDGED`) and final financial settlement.
+* **Owns Data**: `messaging.payment_message` records in the `messaging` schema (`V10`–`V11`), mapped via `PaymentMessageEntity`, `PaymentMessageMapper`, and `PaymentMessageRepository` (`com.crosspaynet.messaging.infrastructure.persistence`).
+* **Exposes Capabilities**:
+  * Root application service `MessagingService` (`com.crosspaynet.messaging.MessagingService`): `dispatchPaymentMessage`, `acknowledgeMessage`, `nacknowledgeMessage`, `markMessageTimedOut`, `findMessage`, `findByPaymentAndAttempt`, and `findMessagesForPayment`.
+  * Narrow public contracts in `com.crosspaynet.messaging.contracts` (`@NamedInterface("contracts")`): `MessageId`, `PaymentMessageType`, `PaymentMessageStatus`, `PaymentMessageView`, command records (`DispatchPaymentMessageCommand`, `AcknowledgeMessageCommand`, `NacknowledgeMessageCommand`, `TimeoutMessageCommand`), and the `MessagingException` hierarchy (`MessagingValidationException`, `MessageNotFoundException`, `InvalidMessageStateException`, `MessageConflictException`).
+* **Consumes Capabilities**: `Payment` (`PaymentService.findPayment`, `PaymentService.markDispatched`, and `PaymentService.failPayment` via `payment` and `payment :: contracts`) and Shared Kernel (`common`, `common :: money`). Does **not** depend on `Banking`, `Ledger`, or `Settlement`.
 
 ### 2.8 Operations/Audit Module
 * **Responsibility**: Provides visibility and dispute resolution tools for bank staff.

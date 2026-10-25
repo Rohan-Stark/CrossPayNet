@@ -18,6 +18,7 @@ An aggregate is a consistency boundary. It determines what must be persisted tog
 *   **Account (Banking Module)**: Protects account status (`ACTIVE`, `FROZEN`, `CLOSED`), operational balances (`available_balance`, `reserved_amount`), and `fund_reservation` child records.
 *   **Payment (Payment Module)**: Protects payment instruction immutability, deterministic SHA-256 instruction fingerprinting, the nine-state workflow lifecycle (`VALIDATING`, `COMPLIANCE_HOLD`, `ROUTING`, `EXECUTING`, `PENDING_EXTERNAL`, `SETTLED`, `REJECTED`, `CANCELLED`, `FAILED`), the Financial Commitment Point (`ROUTING -> EXECUTING`), and state-specific correlation and reason-code invariants.
 *   **LedgerTransaction (Ledger Module)**: Protects the double-entry accounting invariants (`2..100` immutable `LedgerEntry` lines, single currency, positive unsigned `Money` amounts, explicit `DEBIT`/`CREDIT` directions, and `sum(DEBIT) == sum(CREDIT) == total_amount`) for each individual accounting transaction (ADR-006). (Note: Treating the entire Ledger as one global aggregate is an anti-pattern that creates a massive concurrency bottleneck).
+*   **PaymentMessage (Messaging Module)**: Protects the deterministic ISO 20022-inspired (`pacs.008.001.08`) wire payload, SHA-256 payload integrity digest (`crosspaynet-message-digest-v1`), per-attempt transmission lifecycle (`GENERATED`, `SIGNED`, `SENT`, `ACKNOWLEDGED`, `NACKNOWLEDGED`, `TIMEOUT`), and state-specific outcome invariants (`acknowledgment_reference`, `peer_rejection_code`/`peer_rejection_reason`, `timeout_reason`).
 *   **SettlementObligation (Settlement Module)**: Protects the inter-bank netting and liquidity state.
 
 ## C. Module Data Ownership
@@ -27,8 +28,8 @@ Each module explicitly owns its data. No module may directly `SELECT`, `INSERT`,
 *   **Ledger**: Owns `ledger_transaction` and `ledger_entry` in the `ledger` schema (ADR-006, `V4`–`V6`).
 *   **Compliance**: Owns `compliance_review`, `sanctions_list` in the `compliance` schema.
 *   **Routing**: Owns `correspondent_route` in the `routing` schema.
-*   **Settlement**: Owns `settlement_obligation` in the `settlement` schema.
-*   **Network/Messaging**: Owns `message_outbox`, `message_inbox` in the `messaging` schema.
+*   **Settlement**: Stateless orchestrator in the current checkpoint; future netting extensions own `settlement_obligation` in the `settlement` schema.
+*   **Network/Messaging**: Owns `payment_message` in the `messaging` schema (`V10`–`V11`).
 *   **Operations/Audit**: Owns `audit_event`, `dispute_case` in the `operations` schema.
 
 ## D. PostgreSQL Schema-Per-Module Strategy
@@ -68,6 +69,10 @@ Example conceptual schemas:
     *   `payment.payment` enforces `uk_payment_source_account_ref UNIQUE (source_account_id, payment_reference)`, unconstrained `amount NUMERIC NOT NULL` guarded by `chk_payment_amount` (`amount > 0 AND amount <= 999999999999999.9999 AND scale(trim_scale(amount)) <= 4`), `chk_payment_currency_supported`, `chk_payment_beneficiary_bic`, and `chk_payment_state_invariants` across all nine `PaymentStatus` values.
     *   **PostgreSQL Three-Valued Logic (`UNKNOWN`) Safeguard**: Because PostgreSQL `CHECK` constraints pass when a boolean expression evaluates to `UNKNOWN` (`NULL`), every `REJECTED`, `CANCELLED`, and `FAILED` branch in `chk_payment_state_invariants` explicitly requires `status_reason_code IS NOT NULL` before evaluating `status_reason_code IN (...)` or `status_reason_code = 'CUSTOMER_CANCELLED'`.
     *   **Java UTF-16 vs. PostgreSQL Unicode Code-Point Length Alignment (`V9__align_payment_unicode_length_constraints.sql`)**: Java domain value objects (`PaymentReference`, `BeneficiaryDetails`, `Payment`) validate maximum text lengths using `String.length()`, which counts **UTF-16 code units** (where each supplementary Unicode character in `U+10000..U+10FFFF` occupies a 2-unit surrogate pair). By contrast, PostgreSQL `VARCHAR(N)` and `char_length(...)` count **Unicode code points** (`1` per supplementary character). Without an explicit UTF-16 length check in SQL, direct SQL could insert a row containing supplementary characters whose code-point count is `<= N` but whose UTF-16 length exceeds `N`, causing `PaymentMapper.toDomain(...)` to fail with `PersistedPaymentStateException` on read. Migration `V9` aligns `chk_payment_reference_non_blank` (`<= 255`), `chk_payment_beneficiary_name` (`<= 140`), `chk_payment_beneficiary_account` (`<= 34`), `chk_payment_route_reference` (`<= 100`), `chk_payment_external_dispatch_reference` (`<= 100`), and `chk_payment_reason_detail` (`<= 500`) using `(char_length(col) + regexp_count(col, '[\U00010000-\U0010FFFF]')) <= N`, ensuring PostgreSQL enforces the exact same UTF-16 length ceiling as the Java domain.
+*   **Database-Level Messaging State, Payload Digest & Unicode Length Integrity (Phase 5, `V10`–`V11`)**:
+    *   `messaging.payment_message` enforces `uk_payment_message_payment_attempt UNIQUE (payment_id, attempt_number)`, `uk_payment_message_idempotency_key UNIQUE (idempotency_key)`, unconstrained `amount NUMERIC NOT NULL` guarded by `chk_payment_message_amount` (`amount > 0 AND amount <= 999999999999999.9999 AND scale(trim_scale(amount)) <= 4`), `chk_payment_message_currency_supported`, `chk_payment_message_sender_bic` and `chk_payment_message_receiver_bic`, `chk_payment_message_payload_digest` (`^[0-9a-f]{64}$`), and 3VL-safe `chk_payment_message_state_invariants` across `GENERATED`, `SIGNED`, `SENT`, `ACKNOWLEDGED`, `NACKNOWLEDGED`, and `TIMEOUT`.
+    *   All bounded text columns (`idempotency_key` $\le 200$, `route_reference` $\le 100$, `beneficiary_name` $\le 140$, `beneficiary_account_number` $\le 34$, `acknowledgment_reference` $\le 100$, `peer_rejection_code` $\le 35$, `peer_rejection_reason` $\le 500$, and `timeout_reason` $\le 500$) enforce UTF-16 length alignment using `(char_length(col) + regexp_count(col, '[\U00010000-\U0010FFFF]')) <= N`.
+    *   On read (`PaymentMessage.restore`), the Java domain re-computes both the expected `Pacs008PayloadBuilder` wire payload and its `PayloadDigest` (`crosspaynet-message-digest-v1`), throwing `PersistedMessageStateException` if either the stored `payload` or `payload_digest` has been tampered with.
 
 ## G. Balance Persistence Strategy
 The operational `available_balance` and `reserved_amount` are maintained transactionally on the `Account` aggregate in the `banking` schema.
@@ -92,6 +97,9 @@ CrossPayNet separates idempotency across distinct architectural layers:
 4.  **Payment Instruction Idempotency (Phase 4)**:
     *   Enforced per source account via `uk_payment_source_account_ref UNIQUE (source_account_id, payment_reference)` and `instruction_fingerprint CHAR(64) NOT NULL` (`crosspaynet-payment-fingerprint-v1`) on `payment.payment`.
     *   Claimed via `INSERT INTO payment.payment ... ON CONFLICT (source_account_id, payment_reference) DO NOTHING` so duplicate or conflicting claims never abort the active PostgreSQL transaction (`25P02`).
+5.  **Per-Attempt Financial Message Dispatch Idempotency (Phase 5)**:
+    *   Enforced per payment and attempt via `uk_payment_message_payment_attempt UNIQUE (payment_id, attempt_number)` and `uk_payment_message_idempotency_key UNIQUE (idempotency_key)` (`MSG:{paymentId}:ATTEMPT:{attemptNumber}`) on `messaging.payment_message`.
+    *   Claimed via `INSERT INTO messaging.payment_message ... ON CONFLICT DO NOTHING` so concurrent duplicate dispatch requests return the existing `PaymentMessageView` (or throw `MessageConflictException` if `senderBic` differs) without aborting the active PostgreSQL transaction.
 
 ## I. Transaction Boundaries
 *   **Payment Creation + Successful Reservation**: Executed as **one local ACID transaction**. The orchestration logic begins a transaction, creates the Payment (in `payment` schema), and reserves funds (in `banking` schema). Both commit together.
@@ -119,6 +127,9 @@ CrossPayNet separates idempotency across distinct architectural layers:
         *   `V7__init_payment_schema.sql` (`payment` schema)
         *   `V8__init_payment_tables.sql` (`payment.payment`, state-invariant constraints, and operational indexes)
         *   `V9__align_payment_unicode_length_constraints.sql` (aligns `payment.payment` text `CHECK` constraints with Java UTF-16 `String.length()` for supplementary Unicode characters)
+    *   **Implemented (Phase 5 — Financial Messaging Persistence)**:
+        *   `V10__init_messaging_schema.sql` (`messaging` schema)
+        *   `V11__init_messaging_tables.sql` (`messaging.payment_message`, per-attempt uniqueness, payload digest, state-invariant, and UTF-16 length constraints, and operational indexes)
 *   **Ordering**: A single execution engine ensures deterministic ordering and safety during application startup.
 
 ## L. Shared Reference Data

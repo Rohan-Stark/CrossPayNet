@@ -1,7 +1,7 @@
 # Project Status
 
-Current Phase: Settlement Module — Transactional Settlement Orchestration
-Current Subphase: Accepted & Published (`SettlementService` Orchestration Complete)
+Current Phase: Phase 5 — Financial Messaging (`messaging` Module)
+Current Subphase: Local Checkpoint, Pending Acceptance Review
 
 ## Completed Phases
 * Phase 0 — Engineering Constitution
@@ -34,12 +34,13 @@ Current Subphase: Accepted & Published (`SettlementService` Orchestration Comple
   * Checkpoint 3 — `PaymentService` Application Orchestration & End-to-End Integration Verification ✅ (Accepted & Pushed: `547fcaa`)
 * **Settlement Module — Cross-Module Settlement Orchestration** ✅ (Accepted & Pushed: `a59e11d`)
   * `SettlementService` (`settlePayment`), `SettlePaymentCommand`, `SettlementResult`, and `SettlementException` hierarchy coordinating `BankingService.consumeReservation`, `LedgerService.postTransaction`, and `PaymentSettlementPort.recordSettlement` atomically.
+* **Phase 5 — Financial Messaging (`messaging` Module)** 🔄 *(Local Checkpoint, Pending Acceptance Review)*
+  * Pure `PaymentMessage` domain (`GENERATED -> SIGNED -> SENT -> ACKNOWLEDGED | NACKNOWLEDGED | TIMEOUT`), deterministic ISO 20022-inspired `pacs.008.001.08` payload builder (`Pacs008PayloadBuilder`), SHA-256 payload integrity digest (`PayloadDigest`, `crosspaynet-message-digest-v1`), Flyway `V10`–`V11` persistence in `messaging.payment_message`, and transactional `MessagingService` orchestration with per-attempt conflict-safe idempotency, timeout-driven retry attempts, atomic NACK failure handling, and strict separation between message acknowledgment and financial settlement.
 
 ## Current/Next Phase
-* **Phase 5 — Financial Messaging** ▶ NEXT
+* **Phase 6 — Routing & Correspondent Banking** ▶ NEXT (after Phase 5 acceptance)
 
 ## Upcoming Phases
-* Phase 5 — Financial Messaging ○
 * Phase 6 — Routing & Correspondent Banking ○
 * Phase 7 — Distributed Systems & Advanced Settlement Extensions ○
 * Phase 8 — Security & Compliance
@@ -55,7 +56,8 @@ Current Subphase: Accepted & Published (`SettlementService` Orchestration Comple
 * **Phase 3 (ADR-006)**: Immutable double-entry financial ledger using conflict-safe `INSERT ... ON CONFLICT DO NOTHING` idempotency claims, unconstrained `NUMERIC` with `scale(trim_scale(...)) <= 4` checks, and deferred PostgreSQL commit triggers.
 * **Phase 4 (CP1–CP3)**: Payment aggregate state machine (`VALIDATING`, `COMPLIANCE_HOLD`, `ROUTING`, `EXECUTING`, `PENDING_EXTERNAL`, `SETTLED`, `REJECTED`, `CANCELLED`, `FAILED`), Financial Commitment Point at `ROUTING -> EXECUTING`, database-level state/reason/UTF-16 length invariants (`V7`–`V9`), and transactional `PaymentService` orchestration with conflict-safe `(source_account_id, payment_reference)` idempotency and atomic Banking reservation release (`cancelPayment`, `rejectPayment`, `failPayment`).
 * **Settlement Module**: Stateless transactional orchestrator (`SettlementService.settlePayment`) that requires an explicit `INTERNAL` `clearingAccountReference` and external `settlementReference` (never inferring the clearing account from `routeReference`), posts a balanced 2-line `STANDARD` ledger entry (`DEBIT` `BANKING_ACCOUNT` `sourceAccountId`, `CREDIT` `INTERNAL` `clearingAccountReference`) under deterministic key `PAYMENT_SETTLEMENT:{paymentId}`, and coordinates reservation consumption, ledger posting, and payment settlement recording atomically within a single ACID transaction.
+* **Phase 5 (Financial Messaging)**: `com.crosspaynet.messaging` owns `PaymentMessage` (`messaging.payment_message`, migrations `V10`–`V11`), generating deterministic `pacs.008.001.08` payloads and `crosspaynet-message-digest-v1` SHA-256 integrity digests (verified on sign and database restoration). Network retries (`attemptNumber > 1`) are tracked as independent `PaymentMessage` records after a preceding `TIMEOUT` while preserving `Payment`'s original `externalDispatchReference` from attempt `1`. Positive acknowledgment (`ACKNOWLEDGED`) does not settle the payment or post ledger entries (`SettlementService.settlePayment` remains the explicit settlement boundary); negative acknowledgment (`NACKNOWLEDGED`) atomically invokes `PaymentService.failPayment` (`EXTERNAL_NETWORK_REJECTED`).
 
 ## Verification Status
-* **Test Suite Status**: 166 full-suite tests across 22 Surefire test suites passing against PostgreSQL 18 Testcontainers (`0` failures, `0` errors, `0` skipped) with Flyway migrations `V1`–`V9`.
+* **Test Suite Status**: 186 full-suite tests across 26 Surefire test suites passing against PostgreSQL 18 Testcontainers (`0` failures, `0` errors, `0` skipped) with Flyway migrations `V1`–`V11`.
 * **Chronological Change Log**: See root [`changes.md`](../changes.md) for detailed checkpoint and corrective commit records.
