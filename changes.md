@@ -4,7 +4,7 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
-## 2026-10-25 — Phase 4 Checkpoint 3 (CP3): `PaymentService` Orchestration & Integration Verification — *Local/Unpublished, Pending Review*
+## 2026-10-25 — Phase 4 Checkpoint 3 (CP3): `PaymentService` Orchestration & Integration Verification (`547fcaae78a711a89f1ded45272109ca0648f6e2`) — *Accepted & Published to `origin/main`*
 
 * **Scope**: Implemented [`PaymentService`](src/main/java/com/crosspaynet/payment/PaymentService.java) in `com.crosspaynet.payment` (implementing [`PaymentSettlementPort`](src/main/java/com/crosspaynet/payment/settlement/PaymentSettlementPort.java)) to orchestrate the cross-border payment workflow across `Payment`, `PaymentRepository`, `PaymentMapper`, and `BankingService`:
   * **Conflict-Safe Initiation & Synchronous Reservation (`initiatePayment`)**: Atomically claims `(source_account_id, payment_reference)` via `insertClaimOnConflictDoNothing`. Duplicate submissions return the existing `PaymentView` when `InstructionFingerprint` matches or throw `PaymentReferenceConflictException` (narrowly exempted via `noRollbackFor` on the pre-write duplicate branch). First claims invoke `BankingService.reserveFunds` in the shared transaction, transitioning `VALIDATING -> COMPLIANCE_HOLD` on success, committing a `REJECTED` audit record (`INSUFFICIENT_FUNDS`, `INVALID_ACCOUNT_STATE`, or `CURRENCY_MISMATCH` with `reservationToken = null`) on pre-write business reservation rejections, and rolling back the `VALIDATING` claim row on `AccountNotFoundException`, corrupted state, or unexpected runtime errors so `VALIDATING` never persists as a resting state.
