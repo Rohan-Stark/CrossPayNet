@@ -1,7 +1,7 @@
 # Project Status
 
 Current Phase: Phase 4 — Payment Engine & Orchestration
-Current Subphase: Checkpoint 2 (Payment Persistence & Integrity Constraints — Local Verification Complete, Pending Review)
+Current Subphase: Checkpoint 2 Accepted & Published (Checkpoint 3 `PaymentService` Orchestration Next)
 
 ## Completed Phases
 * Phase 0 — Engineering Constitution
@@ -32,8 +32,8 @@ Current Subphase: Checkpoint 2 (Payment Persistence & Integrity Constraints — 
 ## Current/Next Phase
 * **Phase 4 — Payment Engine & Orchestration** ▶ IN PROGRESS
   * Checkpoint 1 — Pure Payment Domain, State Machine, Fingerprinting & Public Contracts ✅ (Accepted & Pushed: `3fa69c9`)
-  * Checkpoint 2 — Flyway V7–V9 Payment Persistence Schema, UTF-16 Length Alignment & PostgreSQL Integrity Constraints 🔄 (Locally Verified, Pending Acceptance Review)
-  * Checkpoint 3 — `PaymentService` Application Orchestration & End-to-End Integration Verification ○
+  * Checkpoint 2 — Flyway V7–V9 Payment Persistence Schema, UTF-16 Length Alignment & PostgreSQL Integrity Constraints ✅ (Accepted & Pushed: `b8688ef`, `676d7eb`)
+  * Checkpoint 3 — `PaymentService` Application Orchestration & End-to-End Integration Verification ▶ NEXT
 
 ## Upcoming Phases
 * Phase 5 — Financial Messaging ○

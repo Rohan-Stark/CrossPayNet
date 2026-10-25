@@ -4,7 +4,7 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
-## 2026-10-25 — Phase 4 CP2 Corrective Update: V9 UTF-16 Unicode Length Alignment (`676d7eb1dd32c18896c7acf4b177d392c13f296d`) — *Local Commit, Pending Publication/Acceptance*
+## 2026-10-25 — Phase 4 CP2 Corrective Update: V9 UTF-16 Unicode Length Alignment (`676d7eb1dd32c18896c7acf4b177d392c13f296d`) — *Accepted & Published to `origin/main`*
 
 * **Problem**: Java domain value objects (`PaymentReference`, `BeneficiaryDetails`, `Payment`) validate text length limits using `String.length()` (UTF-16 code units, where supplementary Unicode characters `U+10000`–`U+10FFFF` occupy 2 units), whereas PostgreSQL `VARCHAR(N)` and `char_length(...)` count Unicode code points (`1` per supplementary character). Without UTF-16-aware SQL constraints, direct SQL could insert a row containing supplementary characters that satisfied `VARCHAR(N)` in PostgreSQL but failed domain restoration (`PersistedPaymentStateException`) in Java.
 * **Migration Added**: `V9__align_payment_unicode_length_constraints.sql` updates the six `payment.payment` text-length `CHECK` constraints (`chk_payment_reference_non_blank` $\le 255$, `chk_payment_beneficiary_name` $\le 140$, `chk_payment_beneficiary_account` $\le 34$, `chk_payment_route_reference` $\le 100$, `chk_payment_external_dispatch_reference` $\le 100$, and `chk_payment_reason_detail` $\le 500`) using `(char_length(col) + regexp_count(col, '[\U00010000-\U0010FFFF]')) <= N` while preserving `IS NULL` allowance on nullable columns, trimming, non-blank, and control-character checks.
@@ -12,7 +12,7 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
-## 2026-10-25 — Phase 4 Checkpoint 2 (CP2): Payment Persistence & Integrity Constraints (`b8688ef05a8a6ceeb6875edf3bebb3e701ad3fe5`) — *Local Commit, Pending Publication/Acceptance*
+## 2026-10-25 — Phase 4 Checkpoint 2 (CP2): Payment Persistence & Integrity Constraints (`b8688ef05a8a6ceeb6875edf3bebb3e701ad3fe5`) — *Accepted & Published to `origin/main`*
 
 * **Scope**: Implemented the `payment` relational schema and JPA persistence adapter:
   * `V7__init_payment_schema.sql`: Created the `payment` schema (`CREATE SCHEMA IF NOT EXISTS payment;`).
