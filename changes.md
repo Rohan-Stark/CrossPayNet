@@ -4,7 +4,7 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
-## 2026-10-26 — Phase 7: Distributed Systems, Kafka & Reliability (`events` Module) — *Local Checkpoint*
+## 2026-10-26 — Phase 7: Distributed Systems, Kafka & Reliability (`events` Module) — *Accepted & Published to `origin/main` (commit `373f3fd6f4e629679e85a1312646a587af944dd5`)*
 
 * **Scope**: Implemented distributed reliability infrastructure and Apache Kafka integration leveraging Spring Modulith's transactional event publication registry for the transactional outbox pattern, an idempotent database inbox deduplicator, and robust Kafka consumer reliability:
   * **Contracts & Pure Value Objects (`com.crosspaynet.events.contracts`)**: Standardized `EventEnvelope<T>` (`eventId`, `eventType`, `eventVersion`, `occurredAt`, `correlationId`, `causationId`, `payload`), `EventDeduplicator`, `TransactionalConsumerExecutor`, and `ConsumerExecutionResult`. Domain events carry stable immutable identifiers (`eventId`, `occurredAt`, `correlationId`, `causationId`) generated prior to transaction commit.

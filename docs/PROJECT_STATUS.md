@@ -1,7 +1,7 @@
 # Project Status
 
 Current Phase: Phase 7 — Distributed Systems, Kafka & Reliability (`events` Module)
-Current Subphase: Implemented & Verified (Outbox, Deduplication & Consumer Reliability Complete)
+Current Subphase: Accepted & Published (Outbox, Deduplication & Consumer Reliability Complete)
 
 ## Completed Phases
 * Phase 0 — Engineering Constitution
@@ -40,7 +40,7 @@ Current Subphase: Implemented & Verified (Outbox, Deduplication & Consumer Relia
 * **Phase 6 — Routing & Correspondent Banking (`routing` Module)** ✅ (Accepted & Pushed: `73eed78`, `52c70f0`)
   * `CorrespondentRoute` domain, Flyway `V12`–`V13` persistence in `routing.correspondent_route`, deterministic route selection (`ACTIVE`, matching BIC and currency, `priority ASC, routeReference ASC`), conflict-safe route registration, and `RoutingService.routePayment` orchestrating `ROUTING -> EXECUTING` or `ROUTING -> REJECTED (NO_ROUTE_AVAILABLE)` with atomic reservation release and committed-route replay.
 
-* **Phase 7 — Distributed Systems, Kafka & Reliability (`events` Module)** ✅ (Local Checkpoint)
+* **Phase 7 — Distributed Systems, Kafka & Reliability (`events` Module)** ✅ (Accepted & Pushed: `373f3fd`)
   * Transactional outbox via Spring Modulith event publication registry (`system.event_publication`), deterministic partition-keyed event externalization (`crosspaynet.*.v1`), standardized `EventEnvelope`, Flyway `V14` inbox persistence (`system.event_inbox`), conflict-safe consumer deduplication (`INSERT ... ON CONFLICT DO NOTHING`), `TransactionalConsumerExecutor` with atomic effect commit, and robust Kafka consumer error handling with bounded retries and dead-letter publishing (`.DLT`) with diagnostic exception headers.
 
 ## Current/Next Phase
@@ -63,7 +63,8 @@ Current Subphase: Implemented & Verified (Outbox, Deduplication & Consumer Relia
 * **Phase 5 (Financial Messaging)**: `com.crosspaynet.messaging` owns `PaymentMessage` (`messaging.payment_message`, migrations `V10`–`V11`), generating deterministic `pacs.008.001.08` payloads and `crosspaynet-message-digest-v1` SHA-256 integrity digests (verified on sign and database restoration). Network retries (`attemptNumber > 1`) are tracked as independent `PaymentMessage` records after a preceding `TIMEOUT` while preserving `Payment`'s original `externalDispatchReference` from attempt `1`. Positive acknowledgment (`ACKNOWLEDGED`) does not settle the payment or post ledger entries (`SettlementService.settlePayment` remains the explicit settlement boundary); negative acknowledgment (`NACKNOWLEDGED`) atomically invokes `PaymentService.failPayment` (`EXTERNAL_NETWORK_REJECTED`).
 
 * **Phase 6 (Routing)**: `com.crosspaynet.routing` owns `CorrespondentRoute` (`routing.correspondent_route`, migrations `V12`–`V13`). Routing selects routes and makes the routing decision only; it does not move money. Committed routes are replayed by reference (including inactive routes) rather than reselected. Settlement callers obtain `clearingAccountReference` via `RoutingService.findRouteByReference`.
+* **Phase 7 (Distributed Systems & Events)**: `com.crosspaynet.events` implements the transactional outbox pattern via Spring Modulith's event publication registry (`system.event_publication`), publishing domain events to Apache Kafka with deterministic aggregate partition keys (`FundsReserved` -> `accountId`, `PaymentInstructionReceived`, `PaymentSentToNetwork`, `PaymentSettledEvent` -> `paymentId`) inside standardized `EventEnvelope`s. Consumer idempotency is enforced via `system.event_inbox` (`V14`) using conflict-safe `INSERT ... ON CONFLICT DO NOTHING` in the same transaction as the consumer effect. Unretryable/poison-pill payloads route to `.DLT` with diagnostic exception headers after bounded retries.
 
 ## Verification Status
-* **Test Suite Status**: 207 full-suite tests across 30 Surefire test suites passing against PostgreSQL 18 Testcontainers (`0` failures, `0` errors, `0` skipped) with Flyway migrations `V1`–`V13`.
+* **Test Suite Status**: 220 full-suite tests across 34 Surefire test suites passing against PostgreSQL 18 and Apache Kafka Testcontainers (`0` failures, `0` errors, `0` skipped) with Flyway migrations `V1`–`V14`.
 * **Chronological Change Log**: See root [`changes.md`](../changes.md) for detailed checkpoint and corrective commit records.
