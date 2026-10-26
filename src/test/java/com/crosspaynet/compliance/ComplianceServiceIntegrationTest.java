@@ -266,6 +266,10 @@ class ComplianceServiceIntegrationTest {
         assertThatThrownBy(() -> paymentListener.onPaymentInstructionReceived(failingEvent))
                 .isInstanceOf(ComplianceNotFoundException.class);
 
+        // Verify runtime target identifier matches the exact declaring method descriptor
+        assertThat(CompliancePaymentListener.getTargetIdentifier().getValue())
+                .isEqualTo("com.crosspaynet.compliance.CompliancePaymentListener.onPaymentInstructionReceived(com.crosspaynet.payment.contracts.PaymentInstructionReceived)");
+
         // 2. Verified payment in COMPLIANCE_HOLD can be recovered via screenPayment or resubmitFailedScreenings
         AccountId accountId = createAccount("USD", "ACTIVE", new BigDecimal("5000.0000"));
         InitiatePaymentCommand command = new InitiatePaymentCommand(

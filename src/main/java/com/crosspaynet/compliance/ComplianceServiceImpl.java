@@ -23,6 +23,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.modulith.events.IncompleteEventPublications;
+import org.springframework.modulith.events.core.TargetEventPublication;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -218,9 +219,15 @@ public class ComplianceServiceImpl implements ComplianceService {
     public void resubmitFailedScreenings() {
         if (incompletePublications != null) {
             log.info("Triggering resubmission of uncompleted compliance screening publications from event registry");
-            incompletePublications.resubmitIncompletePublications(
-                    pub -> pub.getEvent() instanceof PaymentInstructionReceived
-            );
+            incompletePublications.resubmitIncompletePublications(pub -> {
+                if (!(pub.getEvent() instanceof PaymentInstructionReceived)) {
+                    return false;
+                }
+                if (pub instanceof TargetEventPublication targetPub) {
+                    return targetPub.isIdentifiedBy(CompliancePaymentListener.getTargetIdentifier());
+                }
+                return false;
+            });
         }
     }
 }
