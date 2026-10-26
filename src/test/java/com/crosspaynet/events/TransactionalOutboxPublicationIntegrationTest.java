@@ -72,7 +72,10 @@ class TransactionalOutboxPublicationIntegrationTest {
         assertThat(payment).isNotNull();
 
         long afterCount = countOutboxRowsForEventType("PaymentInstructionReceived");
-        assertThat(afterCount).isEqualTo(beforeCount + 1);
+        // Spring Modulith registers two publication targets for PaymentInstructionReceived:
+        // 1. Externalized Kafka publisher
+        // 2. Transactional cross-module CompliancePaymentListener
+        assertThat(afterCount).isEqualTo(beforeCount + 2);
 
         String serialized = jdbcTemplate.queryForObject(
                 "SELECT serialized_event FROM system.event_publication WHERE event_type LIKE '%PaymentInstructionReceived%' ORDER BY publication_date DESC LIMIT 1",

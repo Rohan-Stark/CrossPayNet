@@ -53,3 +53,19 @@ spring:
         # since Flyway will own the creation of the system schema and table.
         schema-initialization:
           enabled: false
+
+crosspaynet:
+  security:
+    users:
+      customer:
+        username: ${CROSSPAYNET_CUSTOMER_USERNAME:customer}
+        password: ${CROSSPAYNET_CUSTOMER_PASSWORD:customer123!}
+      compliance:
+        username: ${CROSSPAYNET_COMPLIANCE_USERNAME:compliance}
+        password: ${CROSSPAYNET_COMPLIANCE_PASSWORD:compliance123!}
+      operations:
+        username: ${CROSSPAYNET_OPERATIONS_USERNAME:operations}
+        password: ${CROSSPAYNET_OPERATIONS_PASSWORD:operations123!}
+      admin:
+        username: ${CROSSPAYNET_ADMIN_USERNAME:admin}
+        password: ${CROSSPAYNET_ADMIN_PASSWORD:admin123!}

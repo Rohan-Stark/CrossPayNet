@@ -136,6 +136,10 @@ CrossPayNet separates idempotency across distinct architectural layers:
     *   **Implemented (Phase 6 — Routing Persistence)**:
         *   `V12__init_routing_schema.sql` (`routing` schema)
         *   `V13__init_routing_tables.sql` (`routing.correspondent_route`, uniqueness, integrity and UTF-16 length constraints, and lookup index)
+    *   **Implemented (Phase 7 — Distributed Systems & Events Inbox Persistence)**:
+        *   `V14__init_system_event_inbox.sql` (`system.event_inbox` and `system.sample_consumer_effect` for idempotent consumer deduplication)
+    *   **Implemented (Phase 8 — Compliance Review Persistence)**:
+        *   `V15__init_compliance_schema.sql` (`compliance` schema, `compliance.compliance_review`, UTF-16 length constraints, state-invariant checks, and query indexes)
 *   **Ordering**: A single execution engine ensures deterministic ordering and safety during application startup.
 
 ## L. Shared Reference Data

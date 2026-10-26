@@ -4,6 +4,34 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
+## 2026-10-26 — Phase 8: Security, RBAC & Compliance (`security` and `compliance` Modules) — *Implemented Locally (Pending Acceptance Review)*
+
+* **Scope**: Implemented end-to-end security, role-based access control (RBAC), data sanitization/masking, and compliance screening with persistent review records:
+  * **Security & Access Control (`com.crosspaynet.security`, `@NamedInterface("contracts")`)**:
+    * **Role Definitions (`SecurityRoles`)**: Standardized roles `CUSTOMER`, `COMPLIANCE`, `OPERATIONS`, `TELLER`, and `ADMIN` with `ROLE_` prefixes.
+    * **Security Configuration (`SecurityConfiguration`)**: Method-level security enabled via `@EnableMethodSecurity`. Configured `InMemoryUserDetailsManager` backed by externalized, configurable properties under `crosspaynet.security.users` with BCrypt password hashing; default credentials are environment/config driven (no hardcoded passwords in production code).
+    * **Secured Payment Portal Facade (`SecuredPaymentPortalService`)**: Application entrypoint enforcing customer ownership boundaries:
+      * `initiatePayment`: Verifies that authenticated `ROLE_CUSTOMER` users own the debit account (`bankingService.isAccountOwnedBy`). Rejects unauthorized attempts with `AccessDeniedException`.
+      * `getPayment`: Restricts `ROLE_CUSTOMER` to payments originating from their owned accounts; permits staff (`ROLE_OPERATIONS`, `ROLE_TELLER`, `ROLE_ADMIN`, `ROLE_COMPLIANCE`) cross-customer read access.
+      * `cancelPayment`: Restricts cancellations to customer-owned payments.
+    * **Banking Security Integration**: Annotated `BankingService.fundAccount` with `@PreAuthorize("hasRole('ADMIN')")`, and added public query methods `isAccountOwnedBy(AccountId, UUID)` and `findAccountOwner(AccountId)`.
+    * **Log Sanitization & Data Masking (`DataMasker`)**: Masking utilities for PII and sensitive banking identifiers: account numbers masked preserving last 4 characters, names truncated to initial + asterisks, email addresses masked, and payload strings sanitized for structured logging. Integrated into consumer logging (`SampleReliableConsumer`).
+  * **Compliance Screening & Review Management (`com.crosspaynet.compliance`, `@NamedInterface("contracts")`)**:
+    * **Pure Domain Screening (`SanctionsMatcher`)**: Case-insensitive substring matching against a configurable sanctions keyword list (default: `"SANCTIONED"`, `"TERRORIST"`, `"BLOCKED"`, `"RESTRICTED"`). Checks beneficiary name, account number, and bank BIC. Configurable high-value transaction threshold with a default of USD 10,000 (applies strictly to USD transactions without currency conversion, preventing inaccurate cross-currency comparisons).
+    * **Compliance Review Aggregate (`ComplianceReview`)**: Tracks review lifecycle (`PENDING -> RELEASED | REJECTED`). Invariants enforce that reviews must be in `PENDING` to transition, decisions require a non-blank justification, and decisions are immutable once reached.
+    * **PostgreSQL Persistence (`V15__init_compliance_schema.sql`, `compliance.compliance_review`)**: Dedicated schema and table with `review_id UUID PRIMARY KEY`, `payment_id UUID NOT NULL UNIQUE`, `status VARCHAR(30)`, `decision VARCHAR(30)`, `justification VARCHAR(500)`, `reviewer VARCHAR(100)`, UTF-16 code unit constraints (`(char_length(...) + regexp_count(..., '[\U00010000-\U0010FFFF]')) <= N`), state-invariant checks (`chk_compliance_review_state_invariants`), optimistic locking `version`, and query indexes. Zero cross-schema foreign keys.
+    * **Compliance Service (`ComplianceService`, `ComplianceServiceImpl`)**:
+      * `screenPayment`: Screen a payment; clean payments are immediately cleared (`ComplianceStatus.CLEARED`) and promoted to `ROUTING` via `paymentService.approveCompliance`. Flagged payments create a `PENDING` `ComplianceReview` and remain in `COMPLIANCE_HOLD`. Idempotent replay for already-screened payments. Executes under `Propagation.REQUIRES_NEW`.
+      * `submitDecision`: `@PreAuthorize("hasRole('COMPLIANCE')")`. Submits an analyst decision (`RELEASE` -> `paymentService.approveCompliance`; `REJECT` -> `paymentService.rejectPayment`). Replays identical decisions idempotently; conflicting decisions throw `ComplianceConflictException`.
+      * Read operations: `findReviewById`, `findReviewByPaymentId`.
+    * **Event-Driven Auto-Screening (`CompliancePaymentListener`)**: Listens for `PaymentInstructionReceived` (`AFTER_COMMIT`) and automatically screens newly initiated payments. Clean payments seamlessly clear to `ROUTING`, while flagged payments remain safely held. Failures leave payments in `COMPLIANCE_HOLD` without false clearance.
+  * **Limitations & Educational Scope**: Authentication is configured for modular monolith demonstration; production identity providers (OAuth2/OIDC/Keycloak) remain future infrastructure. Sanctions matching is a pure educational simulator rule engine and does not connect to real OFAC or UN sanctions feeds.
+* **Tests & Verification**:
+  * **Focused Phase 8 Tests (41 passing)**: `SanctionsMatcherTest` (8 tests), `ComplianceReviewTest` (7 tests), `DataMaskerTest` (3 tests), `ComplianceModulithArchitectureTest` (2 tests), `CompliancePersistenceIntegrationTest` (5 tests), `SecurityModulithArchitectureTest` (1 test), `SecurityAccessControlTest` (9 tests), and `ComplianceServiceIntegrationTest` (6 tests).
+  * **Full Suite Tests (261 passing)**: Full Maven build (`mvnw test`) passed across all 35 test suites with **261 tests passing** (`0` failures, `0` errors, `0` skipped) against PostgreSQL 18 and Apache Kafka Testcontainers with Flyway `V1`–`V15`.
+
+---
+
 ## 2026-10-26 — Phase 7: Distributed Systems, Kafka & Reliability (`events` Module) — *Accepted & Published to `origin/main` (commit `373f3fd6f4e629679e85a1312646a587af944dd5`)*
 
 * **Scope**: Implemented distributed reliability infrastructure and Apache Kafka integration leveraging Spring Modulith's transactional event publication registry for the transactional outbox pattern, an idempotent database inbox deduplicator, and robust Kafka consumer reliability:

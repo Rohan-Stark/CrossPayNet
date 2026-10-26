@@ -14,11 +14,13 @@ import com.crosspaynet.banking.infrastructure.persistence.AccountMapper;
 import com.crosspaynet.banking.infrastructure.persistence.AccountRepository;
 import com.crosspaynet.common.money.Money;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -136,6 +138,7 @@ public class BankingService {
         accountRepository.save(entity);
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @Transactional(propagation = Propagation.REQUIRED)
     public void fundAccount(AccountId accountId, Money amount) {
         if (accountId == null) {
@@ -153,5 +156,24 @@ public class BankingService {
 
         AccountMapper.updateEntity(domainAccount, entity);
         accountRepository.save(entity);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isAccountOwnedBy(AccountId accountId, UUID customerId) {
+        if (accountId == null || customerId == null) {
+            return false;
+        }
+        return accountRepository.findById(accountId.getValue())
+                .map(entity -> entity.getCustomerId().equals(customerId))
+                .orElse(false);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<UUID> findAccountOwner(AccountId accountId) {
+        if (accountId == null) {
+            return Optional.empty();
+        }
+        return accountRepository.findById(accountId.getValue())
+                .map(AccountEntity::getCustomerId);
     }
 }

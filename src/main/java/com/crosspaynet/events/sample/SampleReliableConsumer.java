@@ -55,7 +55,7 @@ public class SampleReliableConsumer {
     )
     public void onFundsReserved(String payload) throws Exception {
         invocationCount.incrementAndGet();
-        log.info("SampleReliableConsumer received payload: {}", payload);
+        log.debug("SampleReliableConsumer received message payload length: {}", payload != null ? payload.length() : 0);
 
         JsonNode rootNode = objectMapper.readTree(payload);
         if (!rootNode.hasNonNull("eventId") || !rootNode.hasNonNull("eventType")) {

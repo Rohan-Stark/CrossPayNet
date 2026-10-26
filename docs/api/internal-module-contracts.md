@@ -59,6 +59,26 @@ Synchronous contracts are used when immediate consistency is required to satisfy
 * **Consumed By**: Internal orchestration callers; settlement callers resolve `clearingAccountReference` via `findRouteByReference` and pass it to `SettlementService.settlePayment`.
 * **Boundary**: Routing depends only on `payment`, `payment :: contracts`, `common`, and `common :: money`.
 
+### `Compliance.ScreenPayment` & `Compliance.SubmitDecision` (Phase 8)
+* **Purpose**: Screen incoming payment instructions against sanctions keyword lists and high-value transaction thresholds; manage persistent manual analyst reviews and decision clearance.
+* **Exposed By**: `com.crosspaynet.compliance.contracts.ComplianceService`:
+  * `screenPayment(ScreenPaymentCommand)`: `@Transactional(propagation = Propagation.REQUIRES_NEW)`. Screens payment beneficiary details and amount. Clean payments are immediately approved (`paymentService.approveCompliance`); flagged payments are placed into `PENDING` review in `compliance.compliance_review` and left in `COMPLIANCE_HOLD`. Idempotent replay for already-screened payments.
+  * `submitDecision(SubmitComplianceDecisionCommand)`: `@Transactional(propagation = Propagation.REQUIRED)` and `@PreAuthorize("hasRole('COMPLIANCE')")`. Submits analyst decision (`RELEASE` or `REJECT`) with mandatory justification. Releases review and approves payment or rejects review and rejects payment. Conflicting decisions throw `ComplianceConflictException`.
+  * `findReviewById(ComplianceReviewId)` / `findReviewByPaymentId(PaymentId)`: Read-only queries returning `Optional<ComplianceReviewView>`.
+* **Contracts** (`com.crosspaynet.compliance.contracts`, `@NamedInterface("contracts")`): `ComplianceReviewId`, `ComplianceStatus`, `ComplianceDecision`, `ComplianceReviewView`, `ScreenPaymentCommand`, `SubmitComplianceDecisionCommand`, and `ComplianceException` hierarchy (`ComplianceValidationException`, `ComplianceNotFoundException`, `ComplianceConflictException`).
+* **Consumed By**: `CompliancePaymentListener` (asynchronous auto-screening on `PaymentInstructionReceived`) and compliance analyst operations callers.
+* **Boundary**: Depends on `payment :: contracts`, `common`, and `common :: money`.
+
+### `Security.SecuredPaymentPortalService` (Phase 8)
+* **Purpose**: Enforce customer debit account ownership and role-based access control across payment portal operations.
+* **Exposed By**: `com.crosspaynet.security.contracts.SecuredPaymentPortalService`:
+  * `initiatePayment(InitiatePaymentCommand)`: Checks that the authenticated `ROLE_CUSTOMER` user owns the debit account (`bankingService.isAccountOwnedBy`). Rejects unauthorized customer access with `AccessDeniedException`.
+  * `getPayment(PaymentId)`: Ensures `ROLE_CUSTOMER` users can only read payments belonging to accounts they own. Allows operations/teller/compliance staff cross-customer read access.
+  * `cancelPayment(CancelPaymentCommand)`: Enforces customer ownership before forwarding cancellation requests to `paymentService`.
+* **Contracts** (`com.crosspaynet.security.contracts`, `@NamedInterface("contracts")`): `SecuredPaymentPortalService` and `SecurityRoles`.
+* **Consumed By**: External API and user portal controllers.
+* **Boundary**: Depends on `payment :: contracts`, `banking :: contracts`, and `common`.
+
 ### `Ledger.PostTransaction` (Planned for Phase 3 — ADR-006)
 * **Purpose**: Atomically validate and persist a balanced, single-currency double-entry `STANDARD` accounting transaction in the `ledger` schema.
 * **Exposed By**: Ledger Module (`LedgerService.postTransaction`)

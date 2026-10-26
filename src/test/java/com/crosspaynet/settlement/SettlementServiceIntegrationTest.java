@@ -397,9 +397,12 @@ class SettlementServiceIntegrationTest {
         String settlementRef = "ACK-STATES-" + shortId();
 
         // 1. COMPLIANCE_HOLD
-        PaymentView pComplianceHold = paymentService.initiatePayment(
-                sampleInitiateCommand(accountId, PaymentReference.of("PAY-ST-HOLD-" + shortId()), Money.of("100.0000", "USD"))
-        );
+        PaymentView pComplianceHold = paymentService.initiatePayment(new InitiatePaymentCommand(
+                accountId,
+                PaymentReference.of("PAY-ST-HOLD-" + shortId()),
+                new BeneficiaryDetails("Deutsche Telekom AG Sanctioned", "DE89370400440532013000", new BicCode("DEUTDEFFXXX")),
+                Money.of("100.0000", "USD")
+        ));
         assertInvalidStateForSettlement(pComplianceHold, clearingRef, settlementRef);
         assertReservationStatus(pComplianceHold.reservationToken(), "ACTIVE", new BigDecimal("100.0000"), "USD");
 

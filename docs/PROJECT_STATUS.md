@@ -1,7 +1,7 @@
 # Project Status
 
-Current Phase: Phase 7 — Distributed Systems, Kafka & Reliability (`events` Module)
-Current Subphase: Accepted & Published (Outbox, Deduplication & Consumer Reliability Complete)
+Current Phase: Phase 8 — Security & Compliance
+Current Subphase: Implemented Locally (Pending Acceptance Review)
 
 ## Completed Phases
 * Phase 0 — Engineering Constitution
@@ -43,11 +43,14 @@ Current Subphase: Accepted & Published (Outbox, Deduplication & Consumer Reliabi
 * **Phase 7 — Distributed Systems, Kafka & Reliability (`events` Module)** ✅ (Accepted & Pushed: `373f3fd`)
   * Transactional outbox via Spring Modulith event publication registry (`system.event_publication`), deterministic partition-keyed event externalization (`crosspaynet.*.v1`), standardized `EventEnvelope`, Flyway `V14` inbox persistence (`system.event_inbox`), conflict-safe consumer deduplication (`INSERT ... ON CONFLICT DO NOTHING`), `TransactionalConsumerExecutor` with atomic effect commit, and robust Kafka consumer error handling with bounded retries and dead-letter publishing (`.DLT`) with diagnostic exception headers.
 
+* **Phase 8 — Security & Compliance (`security` and `compliance` Modules)** ⏳ (Implemented Locally, Pending Review)
+  * Role-based access control (RBAC) with method security (`CUSTOMER`, `COMPLIANCE`, `OPERATIONS`, `TELLER`, `ADMIN`), customer debit ownership validation via `SecuredPaymentPortalService`, administrative protection on `BankingService.fundAccount`, PII and account number data masking via `DataMasker`, sanctions and high-value screening via `SanctionsMatcher`, persistent review workflow via `compliance.compliance_review` (`V15`), `ComplianceService` decision lifecycle with `ROLE_COMPLIANCE` authorization, and automated payment screening on `PaymentInstructionReceived`.
+
 ## Current/Next Phase
-* **Phase 8 — Security & Compliance** ▶ NEXT
+* **Phase 8 — Security & Compliance** (Pending Acceptance Review & Publication)
+* **Phase 9 — Observability & Operations** ▶ NEXT
 
 ## Upcoming Phases
-* Phase 8 — Security & Compliance
 * Phase 9 — Observability & Operations
 * Phase 10 — AI Anomaly Detection
 * Phase 11 — RAG Payment Operations Copilot
@@ -64,7 +67,8 @@ Current Subphase: Accepted & Published (Outbox, Deduplication & Consumer Reliabi
 
 * **Phase 6 (Routing)**: `com.crosspaynet.routing` owns `CorrespondentRoute` (`routing.correspondent_route`, migrations `V12`–`V13`). Routing selects routes and makes the routing decision only; it does not move money. Committed routes are replayed by reference (including inactive routes) rather than reselected. Settlement callers obtain `clearingAccountReference` via `RoutingService.findRouteByReference`.
 * **Phase 7 (Distributed Systems & Events)**: `com.crosspaynet.events` implements the transactional outbox pattern via Spring Modulith's event publication registry (`system.event_publication`), publishing domain events to Apache Kafka with deterministic aggregate partition keys (`FundsReserved` -> `accountId`, `PaymentInstructionReceived`, `PaymentSentToNetwork`, `PaymentSettledEvent` -> `paymentId`) inside standardized `EventEnvelope`s. Consumer idempotency is enforced via `system.event_inbox` (`V14`) using conflict-safe `INSERT ... ON CONFLICT DO NOTHING` in the same transaction as the consumer effect. Unretryable/poison-pill payloads route to `.DLT` with diagnostic exception headers after bounded retries.
+* **Phase 8 (Security, RBAC & Compliance)**: `com.crosspaynet.security` and `com.crosspaynet.compliance` enforce application access control and regulatory simulation. `SecurityRoles` and `@EnableMethodSecurity` protect administrative operations (`BankingService.fundAccount`), enforce customer debit ownership boundaries via `SecuredPaymentPortalService`, and restrict compliance reviews to `ROLE_COMPLIANCE`. `DataMasker` sanitizes PII and account references for structured logs. `compliance.compliance_review` (`V15`) maintains immutable review history, while `SanctionsMatcher` screens for sanctions keywords and non-converting USD high-value thresholds, triggering automated evaluation via `CompliancePaymentListener` upon `PaymentInstructionReceived`.
 
 ## Verification Status
-* **Test Suite Status**: 220 full-suite tests across 34 Surefire test suites passing against PostgreSQL 18 and Apache Kafka Testcontainers (`0` failures, `0` errors, `0` skipped) with Flyway migrations `V1`–`V14`.
+* **Test Suite Status**: 261 full-suite tests across 35 Surefire test suites passing against PostgreSQL 18 and Apache Kafka Testcontainers (`0` failures, `0` errors, `0` skipped) with Flyway migrations `V1`–`V15`.
 * **Chronological Change Log**: See root [`changes.md`](../changes.md) for detailed checkpoint and corrective commit records.

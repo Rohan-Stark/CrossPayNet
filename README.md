@@ -28,15 +28,15 @@ CrossPayNet is implemented as an **Evolutionary Modular Monolith** (Java 25 LTS,
 * **Messaging Module (`messaging`, `messaging :: contracts`)**: ISO 20022-inspired (`pacs.008.001.08`) wire message generation (`Pacs008PayloadBuilder`), SHA-256 payload integrity digest (`PayloadDigest`, `crosspaynet-message-digest-v1`), PostgreSQL persistence (`messaging.payment_message`, `V10`–`V11`), and transactional `MessagingService` orchestration with per-attempt conflict-safe dispatch, timeout-gated retries, atomic NACK failure handling, and ACK/settlement boundary separation.
 * **Routing Module (`routing`, `routing :: contracts`)**: Correspondent route registry in the `routing` schema (`V12`–`V13`), deterministic route selection by destination BIC, currency, and priority, and `RoutingService.routePayment` committing payments to execution or rejecting them with `NO_ROUTE_AVAILABLE` and atomic reservation release.
 * **Distributed Systems & Events Module (`events`, `events :: contracts`)**: Transactional outbox via Spring Modulith event publication registry (`system.event_publication`), deterministic partition-keyed externalization to Apache Kafka (`crosspaynet.*.v1`), standardized `EventEnvelope`, PostgreSQL inbox (`system.event_inbox`, `V14`), conflict-safe consumer deduplication, and consumer reliability with bounded retries and dead-letter publishing (`.DLT`).
+* **Security Module (`security`, `security :: contracts`)**: Role-based access control (`ROLE_CUSTOMER`, `ROLE_COMPLIANCE`, `ROLE_OPERATIONS`, `ROLE_TELLER`, `ROLE_ADMIN`), secured application entrypoint (`SecuredPaymentPortalService`) enforcing customer account ownership, administrative protection on account funding (`BankingService.fundAccount`), and data sanitization (`DataMasker`) for PII in logs.
+* **Compliance Module (`compliance`, `compliance :: contracts`)**: Pure domain sanctions keyword matching and USD high-value threshold screening (`SanctionsMatcher`), persistent review aggregate (`compliance.compliance_review`, `V15`), transactional `ComplianceService` decision lifecycle (`RELEASE` / `REJECT`), and automated event-driven screening on `PaymentInstructionReceived`.
 
 ## Planned Capabilities
-* Security and digital signatures
-* Compliance and risk simulation
+* Real-time operational dashboards
 * Failure recovery and replay
 * Observability
 * AI-based anomaly detection
 * RAG-based Payment Operations Copilot
-* Real-time operational dashboards
 
 ## Validation
 Run the full unit, architecture, PostgreSQL 18, and Apache Kafka Testcontainers integration test suite with:

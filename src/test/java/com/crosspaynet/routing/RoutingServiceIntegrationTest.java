@@ -385,7 +385,7 @@ class RoutingServiceIntegrationTest {
         PaymentView complianceHoldPayment = paymentService.initiatePayment(new InitiatePaymentCommand(
                 sourceAccountId,
                 PaymentReference.of("PAY-RT-HOLD-" + shortId()),
-                new BeneficiaryDetails("DBS Beneficiary", "SG1234567890", destBic),
+                new BeneficiaryDetails("DBS Beneficiary Sanctioned Entity", "SG1234567890", destBic),
                 Money.of("100.0000", "SGD")
         ));
         assertThatThrownBy(() -> routingService.routePayment(complianceHoldPayment.paymentId()))
@@ -403,7 +403,7 @@ class RoutingServiceIntegrationTest {
         PaymentView complianceRejectedPayment = paymentService.initiatePayment(new InitiatePaymentCommand(
                 sourceAccountId,
                 PaymentReference.of("PAY-RT-CREJ-" + shortId()),
-                new BeneficiaryDetails("DBS Beneficiary", "SG1234567890", destBic),
+                new BeneficiaryDetails("DBS Beneficiary Sanctioned Entity", "SG1234567890", destBic),
                 Money.of("100.0000", "SGD")
         ));
         paymentService.rejectPayment(new RejectPaymentCommand(

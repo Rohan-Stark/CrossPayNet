@@ -184,11 +184,17 @@ class KafkaReliabilityAndConsumerIntegrationTest {
         // Read from DLT topic to verify parking
         Consumer<String, String> consumer = createTestConsumer(EventsModuleConfiguration.TOPIC_FUNDS_RESERVED + EventsModuleConfiguration.DLT_SUFFIX);
         try {
-            ConsumerRecord<String, String> dltRecord = KafkaTestUtils.getSingleRecord(
-                    consumer,
-                    EventsModuleConfiguration.TOPIC_FUNDS_RESERVED + EventsModuleConfiguration.DLT_SUFFIX,
-                    Duration.ofSeconds(15)
-            );
+            ConsumerRecord<String, String> dltRecord = null;
+            Instant deadline = Instant.now().plusSeconds(15);
+            while (Instant.now().isBefore(deadline) && dltRecord == null) {
+                var records = consumer.poll(Duration.ofMillis(500));
+                for (ConsumerRecord<String, String> record : records) {
+                    if (record.value() != null && record.value().contains("POISON_PILL")) {
+                        dltRecord = record;
+                        break;
+                    }
+                }
+            }
             assertThat(dltRecord).isNotNull();
             assertThat(dltRecord.value()).contains("POISON_PILL");
 

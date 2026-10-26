@@ -89,9 +89,10 @@ class PaymentServiceIntegrationTest {
     void shouldInitiatePaymentReserveFundsOnceAndEnterComplianceHold() {
         AccountId accountId = createAccount("USD", "ACTIVE", new BigDecimal("1000.0000"));
         PaymentReference reference = PaymentReference.of("PAY-INIT-OK-" + shortId());
-        InitiatePaymentCommand command = sampleInitiateCommand(
+        InitiatePaymentCommand command = new InitiatePaymentCommand(
                 accountId,
                 reference,
+                new BeneficiaryDetails("Deutsche Telekom AG Sanctioned", "DE89370400440532013000", new BicCode("DEUTDEFFXXX")),
                 Money.of("250.5000", "USD")
         );
 
@@ -130,7 +131,7 @@ class PaymentServiceIntegrationTest {
         AccountId accountId = createAccount("USD", "ACTIVE", new BigDecimal("1000.0000"));
         PaymentReference reference = PaymentReference.of("PAY-IDEMP-" + shortId());
         BeneficiaryDetails beneficiary = new BeneficiaryDetails(
-                "Siemens AG",
+                "Siemens AG Sanctioned",
                 "DE89370400440532013000",
                 new BicCode("DEUTDEFFXXX")
         );
@@ -148,7 +149,7 @@ class PaymentServiceIntegrationTest {
         InitiatePaymentCommand equivalentCmd = new InitiatePaymentCommand(
                 accountId,
                 reference,
-                new BeneficiaryDetails("  Siemens AG  ", "  DE89370400440532013000  ", new BicCode("  DEUTDEFFXXX  ")),
+                new BeneficiaryDetails("  Siemens AG Sanctioned  ", "  DE89370400440532013000  ", new BicCode("  DEUTDEFFXXX  ")),
                 Money.of("300.00", "USD")
         );
         PaymentView retry = paymentService.initiatePayment(equivalentCmd);
@@ -358,9 +359,13 @@ class PaymentServiceIntegrationTest {
     void shouldTransitionThroughRoutingExecutingAndPendingExternalWithIdempotentRetries() {
         AccountId accountId = createAccount("USD", "ACTIVE", new BigDecimal("1000.0000"));
         PaymentReference reference = PaymentReference.of("PAY-LIFE-" + shortId());
-        PaymentView initiated = paymentService.initiatePayment(
-                sampleInitiateCommand(accountId, reference, Money.of("400.0000", "USD"))
+        InitiatePaymentCommand initCmd = new InitiatePaymentCommand(
+                accountId,
+                reference,
+                new BeneficiaryDetails("Deutsche Telekom AG Sanctioned", "DE89370400440532013000", new BicCode("DEUTDEFFXXX")),
+                Money.of("400.0000", "USD")
         );
+        PaymentView initiated = paymentService.initiatePayment(initCmd);
         PaymentId paymentId = initiated.paymentId();
         assertThat(initiated.status()).isEqualTo(PaymentStatus.COMPLIANCE_HOLD);
 
@@ -717,7 +722,12 @@ class PaymentServiceIntegrationTest {
             List<Future<?>> futures = new ArrayList<>(threads);
             for (int i = 1; i <= threads; i++) {
                 Money distinctAmount = Money.of((i * 50) + ".0000", "USD");
-                InitiatePaymentCommand cmd = sampleInitiateCommand(accountId, sharedReference, distinctAmount);
+                InitiatePaymentCommand cmd = new InitiatePaymentCommand(
+                        accountId,
+                        sharedReference,
+                        new BeneficiaryDetails("Deutsche Telekom AG Sanctioned", "DE89370400440532013000", new BicCode("DEUTDEFFXXX")),
+                        distinctAmount
+                );
                 futures.add(pool.submit(() -> {
                     readyLatch.countDown();
                     try {
@@ -876,9 +886,12 @@ class PaymentServiceIntegrationTest {
     @Test
     void shouldRollBackReservationReleaseAndPaymentTransitionWhenSharedTransactionFailsWithDatabaseConstraintViolation() {
         AccountId accountId = createAccount("USD", "ACTIVE", new BigDecimal("1000.0000"));
-        PaymentView initiated = paymentService.initiatePayment(
-                sampleInitiateCommand(accountId, PaymentReference.of("PAY-DB-FAIL-RB-" + shortId()), Money.of("250.0000", "USD"))
-        );
+        PaymentView initiated = paymentService.initiatePayment(new InitiatePaymentCommand(
+                accountId,
+                PaymentReference.of("PAY-DB-FAIL-RB-" + shortId()),
+                new BeneficiaryDetails("Deutsche Telekom AG Sanctioned", "DE89370400440532013000", new BicCode("DEUTDEFFXXX")),
+                Money.of("250.0000", "USD")
+        ));
         PaymentId paymentId = initiated.paymentId();
         TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
 
