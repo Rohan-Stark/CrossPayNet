@@ -19,6 +19,12 @@ public interface ComplianceService {
     ComplianceReviewView submitDecision(SubmitComplianceDecisionCommand command);
 
     /**
+     * Resubmits uncompleted compliance screening event publications from the Spring Modulith
+     * publication registry for recovery.
+     */
+    void resubmitFailedScreenings();
+
+    /**
      * Finds the compliance review associated with a payment, if one exists.
      */
     Optional<ComplianceReviewView> findReviewByPaymentId(PaymentId paymentId);

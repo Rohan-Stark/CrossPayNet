@@ -8,6 +8,7 @@ import com.crosspaynet.banking.contracts.PaymentReference;
 import com.crosspaynet.common.money.Money;
 import com.crosspaynet.compliance.contracts.ComplianceConflictException;
 import com.crosspaynet.compliance.contracts.ComplianceDecision;
+import com.crosspaynet.compliance.contracts.ComplianceNotFoundException;
 import com.crosspaynet.compliance.contracts.ComplianceReviewView;
 import com.crosspaynet.compliance.contracts.ComplianceService;
 import com.crosspaynet.compliance.contracts.ComplianceStatus;
@@ -17,6 +18,7 @@ import com.crosspaynet.payment.PaymentService;
 import com.crosspaynet.payment.contracts.BeneficiaryDetails;
 import com.crosspaynet.payment.contracts.BicCode;
 import com.crosspaynet.payment.contracts.InitiatePaymentCommand;
+import com.crosspaynet.payment.contracts.PaymentInstructionReceived;
 import com.crosspaynet.payment.contracts.PaymentStatus;
 import com.crosspaynet.payment.contracts.PaymentView;
 import org.junit.jupiter.api.Test;
@@ -27,6 +29,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -45,6 +48,9 @@ class ComplianceServiceIntegrationTest {
 
     @Autowired
     private BankingService bankingService;
+
+    @Autowired
+    private CompliancePaymentListener paymentListener;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -238,6 +244,50 @@ class ComplianceServiceIntegrationTest {
         );
         assertThatThrownBy(() -> complianceService.submitDecision(conflictCmd))
                 .isInstanceOf(ComplianceConflictException.class);
+    }
+
+    @Test
+    void shouldPropagateExceptionOnListenerFailurePreservingIncompletePublicationAndEnableRecovery() {
+        // 1. Calling listener with non-existent payment simulates screening failure
+        PaymentInstructionReceived failingEvent = new PaymentInstructionReceived(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "PAY-FAIL-" + shortId(),
+                Money.of("100.0000", "USD"),
+                new BeneficiaryDetails("Test Beneficiary", "ACC-123", BicCode.of("CHASUS33XXX")),
+                Instant.now(),
+                "CORR-1",
+                null
+        );
+
+        // Crucial invariant: listener must propagate the exception rather than swallowing it,
+        // allowing Spring Modulith to record the publication as incomplete (completion_date IS NULL)
+        assertThatThrownBy(() -> paymentListener.onPaymentInstructionReceived(failingEvent))
+                .isInstanceOf(ComplianceNotFoundException.class);
+
+        // 2. Verified payment in COMPLIANCE_HOLD can be recovered via screenPayment or resubmitFailedScreenings
+        AccountId accountId = createAccount("USD", "ACTIVE", new BigDecimal("5000.0000"));
+        InitiatePaymentCommand command = new InitiatePaymentCommand(
+                accountId,
+                PaymentReference.of("PAY-RECOVER-" + shortId()),
+                new BeneficiaryDetails("Merchant Sanctioned Entity", "ACC-7788", BicCode.of("CHASUS33XXX")),
+                Money.of("500.0000", "USD")
+        );
+        PaymentView payment = paymentService.initiatePayment(command);
+        assertThat(payment.status()).isEqualTo(PaymentStatus.COMPLIANCE_HOLD);
+
+        // Resubmit uncompleted screening publications
+        complianceService.resubmitFailedScreenings();
+
+        // Idempotent direct recovery screens payment safely
+        ComplianceReviewView review = complianceService.screenPayment(new ScreenPaymentCommand(payment.paymentId()));
+        assertThat(review).isNotNull();
+        assertThat(review.status()).isEqualTo(ComplianceStatus.PENDING);
+
+        // Idempotent retry returns identical review without duplicating
+        ComplianceReviewView replay = complianceService.screenPayment(new ScreenPaymentCommand(payment.paymentId()));
+        assertThat(replay).isEqualTo(review);
     }
 
     private AccountId createAccount(String currency, String status, BigDecimal balance) {

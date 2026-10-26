@@ -15,12 +15,14 @@ import com.crosspaynet.compliance.infrastructure.persistence.ComplianceReviewMap
 import com.crosspaynet.compliance.infrastructure.persistence.ComplianceReviewRepository;
 import com.crosspaynet.payment.PaymentService;
 import com.crosspaynet.payment.contracts.PaymentId;
+import com.crosspaynet.payment.contracts.PaymentInstructionReceived;
 import com.crosspaynet.payment.contracts.PaymentReasonCode;
 import com.crosspaynet.payment.contracts.PaymentView;
 import com.crosspaynet.payment.contracts.RejectPaymentCommand;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.modulith.events.IncompleteEventPublications;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -39,6 +41,9 @@ public class ComplianceServiceImpl implements ComplianceService {
     private final ComplianceReviewRepository reviewRepository;
     private final PaymentService paymentService;
     private final SanctionsMatcher sanctionsMatcher;
+
+    @Autowired(required = false)
+    private IncompleteEventPublications incompletePublications;
 
     @Autowired
     public ComplianceServiceImpl(
@@ -206,5 +211,16 @@ public class ComplianceServiceImpl implements ComplianceService {
         return reviewRepository.findById(reviewId.getValue())
                 .map(ComplianceReviewMapper::toDomain)
                 .map(ComplianceReview::toView);
+    }
+
+    @Override
+    @Transactional
+    public void resubmitFailedScreenings() {
+        if (incompletePublications != null) {
+            log.info("Triggering resubmission of uncompleted compliance screening publications from event registry");
+            incompletePublications.resubmitIncompletePublications(
+                    pub -> pub.getEvent() instanceof PaymentInstructionReceived
+            );
+        }
     }
 }

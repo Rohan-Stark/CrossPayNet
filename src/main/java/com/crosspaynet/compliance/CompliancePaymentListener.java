@@ -29,9 +29,9 @@ public class CompliancePaymentListener {
         try {
             complianceService.screenPayment(new ScreenPaymentCommand(PaymentId.of(event.paymentId())));
         } catch (Exception ex) {
-            log.error("Compliance screening failed for paymentId: {}. Payment remains in COMPLIANCE_HOLD.",
+            log.error("Compliance screening failed for paymentId: {}. Payment remains in COMPLIANCE_HOLD for recovery.",
                     event.paymentId(), ex);
-            // Preserves recovery semantics: failure leaves payment held safely without false clearance.
+            throw ex;
         }
     }
 }

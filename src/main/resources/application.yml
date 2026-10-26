@@ -46,6 +46,7 @@ spring:
 
   modulith:
     events:
+      republish-outstanding-events-on-restart: true
       jdbc:
         # Schema owning the event publication table
         schema: system
