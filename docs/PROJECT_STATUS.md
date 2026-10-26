@@ -1,7 +1,7 @@
 # Project Status
 
 Current Phase: Phase 6 — Routing & Correspondent Banking (`routing` Module)
-Current Subphase: Local Checkpoint, Pending Acceptance Review
+Current Subphase: Accepted & Published (`RoutingService` Orchestration Complete)
 
 ## Completed Phases
 * Phase 0 — Engineering Constitution
@@ -37,11 +37,11 @@ Current Subphase: Local Checkpoint, Pending Acceptance Review
 * **Phase 5 — Financial Messaging (`messaging` Module)** ✅ (Accepted & Pushed: `148775b`)
   * Pure `PaymentMessage` domain (`GENERATED -> SIGNED -> SENT -> ACKNOWLEDGED | NACKNOWLEDGED | TIMEOUT`), deterministic ISO 20022-inspired `pacs.008.001.08` payload builder (`Pacs008PayloadBuilder`), SHA-256 payload integrity digest (`PayloadDigest`, `crosspaynet-message-digest-v1`), Flyway `V10`–`V11` persistence in `messaging.payment_message`, and transactional `MessagingService` orchestration with per-attempt conflict-safe idempotency, timeout-driven retry attempts, atomic NACK failure handling, and strict separation between message acknowledgment and financial settlement.
 
-* **Phase 6 — Routing & Correspondent Banking (`routing` Module)** 🔄 *(Local Checkpoint, Pending Acceptance Review)*
+* **Phase 6 — Routing & Correspondent Banking (`routing` Module)** ✅ (Accepted & Pushed: `73eed78`, `52c70f0`)
   * `CorrespondentRoute` domain, Flyway `V12`–`V13` persistence in `routing.correspondent_route`, deterministic route selection (`ACTIVE`, matching BIC and currency, `priority ASC, routeReference ASC`), conflict-safe route registration, and `RoutingService.routePayment` orchestrating `ROUTING -> EXECUTING` or `ROUTING -> REJECTED (NO_ROUTE_AVAILABLE)` with atomic reservation release and committed-route replay.
 
 ## Current/Next Phase
-* **Phase 7 — Distributed Systems, Kafka & Reliability** ▶ NEXT (after Phase 6 acceptance)
+* **Phase 7 — Distributed Systems, Kafka & Reliability** ▶ NEXT
 
 ## Upcoming Phases
 * Phase 7 — Distributed Systems & Advanced Settlement Extensions ○

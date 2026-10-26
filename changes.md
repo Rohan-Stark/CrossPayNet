@@ -4,7 +4,7 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
-## 2026-10-26 — Phase 6 Corrective Update: BIC Canonicalization & Clearing-Account Whitespace Validation — *Local Checkpoint, Pending Acceptance Review*
+## 2026-10-26 — Phase 6 Corrective Update: BIC Canonicalization & Clearing-Account Whitespace Validation — *Accepted & Published to `origin/main` (corrective commit `52c70f01f7cb6b848880d199e23829149a110a66`)*
 
 * **Problem**: Acceptance review of the Phase 6 implementation found that (1) `BicCode` accepts 8- and 11-character BICs without canonicalizing them, so Routing treated `DEUTDEFF` and `DEUTDEFFXXX` as different destinations (causing false `NO_ROUTE_AVAILABLE` rejections and allowing the unique `(destination_bic, currency, priority)` slot to be bypassed), and (2) clearing-account references with leading/trailing Unicode whitespace (e.g. U+00A0) were accepted by Routing but always rejected by `LedgerAccountRef` at settlement time.
 * **Fix (Routing module only; no migrations, no dependency changes, no other modules touched)**:
@@ -14,7 +14,7 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
-## 2026-10-26 — Phase 6: Routing & Correspondent Banking (`routing` Module) — *Local Checkpoint, Pending Acceptance Review*
+## 2026-10-26 — Phase 6: Routing & Correspondent Banking (`routing` Module) — *Accepted & Published to `origin/main` (commit `73eed78201642d90bfb1ad394e0be13c83076a98`)*
 
 * **Scope**: Implemented the `routing` application module (`com.crosspaynet.routing` and `com.crosspaynet.routing.contracts` `@NamedInterface("contracts")`), depending only on `payment`, `payment :: contracts`, `common`, and `common :: money`:
   * **Pure Domain (`CorrespondentRoute`, `RoutingLimits`, `PersistedRouteStateException`)**: `CorrespondentRoute` aggregate with `routeReference` (`[A-Za-z0-9:_.-]{1,100}`), `destinationBic`, `correspondentBic`, `currency` (USD, EUR, GBP, INR, JPY, CHF, SGD, AED), `clearingAccountReference` (`1..100`, no ISO control characters), `priority` (`1..1000`), `status` (`ACTIVE`/`INACTIVE`), and monotonic timestamps; idempotent `activate`/`deactivate`; strict `restore(...)` validation.
