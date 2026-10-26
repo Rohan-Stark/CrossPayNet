@@ -18,6 +18,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.util.UUID;
+
 @Service
 public class BankingService {
 
@@ -72,11 +75,16 @@ public class BankingService {
         AccountMapper.updateEntity(domainAccount, entity);
         accountRepository.save(entity);
 
+        UUID eventId = UUID.randomUUID();
         eventPublisher.publishEvent(new FundsReserved(
+                eventId,
                 accountId.getValue(),
                 token.getValue(),
                 paymentReference.getValue(),
-                amount
+                amount,
+                Instant.now(),
+                paymentReference.getValue(),
+                null
         ));
 
         return token;

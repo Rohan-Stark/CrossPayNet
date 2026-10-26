@@ -27,11 +27,11 @@ CrossPayNet is implemented as an **Evolutionary Modular Monolith** (Java 25 LTS,
 * **Settlement Module (`settlement`, `settlement :: contracts`)**: Transactional `SettlementService` orchestrating atomic operational fund reservation consumption (`BankingService.consumeReservation`), conflict-safe double-entry ledger posting (`LedgerService.postTransaction` with deterministic key `PAYMENT_SETTLEMENT:{paymentId}`), and final payment settlement recording (`PaymentSettlementPort.recordSettlement`).
 * **Messaging Module (`messaging`, `messaging :: contracts`)**: ISO 20022-inspired (`pacs.008.001.08`) wire message generation (`Pacs008PayloadBuilder`), SHA-256 payload integrity digest (`PayloadDigest`, `crosspaynet-message-digest-v1`), PostgreSQL persistence (`messaging.payment_message`, `V10`–`V11`), and transactional `MessagingService` orchestration with per-attempt conflict-safe dispatch, timeout-gated retries, atomic NACK failure handling, and ACK/settlement boundary separation.
 * **Routing Module (`routing`, `routing :: contracts`)**: Correspondent route registry in the `routing` schema (`V12`–`V13`), deterministic route selection by destination BIC, currency, and priority, and `RoutingService.routePayment` committing payments to execution or rejecting them with `NO_ROUTE_AVAILABLE` and atomic reservation release.
+* **Distributed Systems & Events Module (`events`, `events :: contracts`)**: Transactional outbox via Spring Modulith event publication registry (`system.event_publication`), deterministic partition-keyed externalization to Apache Kafka (`crosspaynet.*.v1`), standardized `EventEnvelope`, PostgreSQL inbox (`system.event_inbox`, `V14`), conflict-safe consumer deduplication, and consumer reliability with bounded retries and dead-letter publishing (`.DLT`).
 
 ## Planned Capabilities
 * Security and digital signatures
 * Compliance and risk simulation
-* Kafka/event-driven processing
 * Failure recovery and replay
 * Observability
 * AI-based anomaly detection
@@ -39,7 +39,7 @@ CrossPayNet is implemented as an **Evolutionary Modular Monolith** (Java 25 LTS,
 * Real-time operational dashboards
 
 ## Validation
-Run the full unit, architecture, and PostgreSQL 18 Testcontainers integration test suite with:
+Run the full unit, architecture, PostgreSQL 18, and Apache Kafka Testcontainers integration test suite with:
 ```powershell
 .\mvnw.cmd clean test
 ```

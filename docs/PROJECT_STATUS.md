@@ -1,7 +1,7 @@
 # Project Status
 
-Current Phase: Phase 6 — Routing & Correspondent Banking (`routing` Module)
-Current Subphase: Accepted & Published (`RoutingService` Orchestration Complete)
+Current Phase: Phase 7 — Distributed Systems, Kafka & Reliability (`events` Module)
+Current Subphase: Implemented & Verified (Outbox, Deduplication & Consumer Reliability Complete)
 
 ## Completed Phases
 * Phase 0 — Engineering Constitution
@@ -40,11 +40,13 @@ Current Subphase: Accepted & Published (`RoutingService` Orchestration Complete)
 * **Phase 6 — Routing & Correspondent Banking (`routing` Module)** ✅ (Accepted & Pushed: `73eed78`, `52c70f0`)
   * `CorrespondentRoute` domain, Flyway `V12`–`V13` persistence in `routing.correspondent_route`, deterministic route selection (`ACTIVE`, matching BIC and currency, `priority ASC, routeReference ASC`), conflict-safe route registration, and `RoutingService.routePayment` orchestrating `ROUTING -> EXECUTING` or `ROUTING -> REJECTED (NO_ROUTE_AVAILABLE)` with atomic reservation release and committed-route replay.
 
+* **Phase 7 — Distributed Systems, Kafka & Reliability (`events` Module)** ✅ (Local Checkpoint)
+  * Transactional outbox via Spring Modulith event publication registry (`system.event_publication`), deterministic partition-keyed event externalization (`crosspaynet.*.v1`), standardized `EventEnvelope`, Flyway `V14` inbox persistence (`system.event_inbox`), conflict-safe consumer deduplication (`INSERT ... ON CONFLICT DO NOTHING`), `TransactionalConsumerExecutor` with atomic effect commit, and robust Kafka consumer error handling with bounded retries and dead-letter publishing (`.DLT`) with diagnostic exception headers.
+
 ## Current/Next Phase
-* **Phase 7 — Distributed Systems, Kafka & Reliability** ▶ NEXT
+* **Phase 8 — Security & Compliance** ▶ NEXT
 
 ## Upcoming Phases
-* Phase 7 — Distributed Systems & Advanced Settlement Extensions ○
 * Phase 8 — Security & Compliance
 * Phase 9 — Observability & Operations
 * Phase 10 — AI Anomaly Detection

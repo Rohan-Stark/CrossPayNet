@@ -16,6 +16,7 @@ import com.crosspaynet.payment.contracts.InvalidPaymentStateException;
 import com.crosspaynet.payment.contracts.MarkPaymentDispatchedCommand;
 import com.crosspaynet.payment.contracts.PaymentId;
 import com.crosspaynet.payment.contracts.PaymentInstruction;
+import com.crosspaynet.payment.contracts.PaymentInstructionReceived;
 import com.crosspaynet.payment.contracts.PaymentNotFoundException;
 import com.crosspaynet.payment.contracts.PaymentReasonCode;
 import com.crosspaynet.payment.contracts.PaymentReferenceConflictException;
@@ -31,6 +32,7 @@ import com.crosspaynet.payment.infrastructure.persistence.PaymentMapper;
 import com.crosspaynet.payment.infrastructure.persistence.PaymentRepository;
 import com.crosspaynet.payment.settlement.PaymentSettlementPort;
 import com.crosspaynet.payment.settlement.RecordPaymentSettlementCommand;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.NoTransactionException;
 import org.springframework.transaction.annotation.Propagation;
@@ -41,6 +43,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Transactional orchestration service for the CrossPayNet Payment lifecycle.
@@ -55,14 +58,17 @@ public class PaymentService implements PaymentSettlementPort {
     private final PaymentRepository paymentRepository;
     private final PaymentMapper paymentMapper;
     private final BankingService bankingService;
+    private final ApplicationEventPublisher eventPublisher;
 
     public PaymentService(
             PaymentRepository paymentRepository,
             PaymentMapper paymentMapper,
-            BankingService bankingService) {
+            BankingService bankingService,
+            ApplicationEventPublisher eventPublisher) {
         this.paymentRepository = Objects.requireNonNull(paymentRepository, "paymentRepository cannot be null.");
         this.paymentMapper = Objects.requireNonNull(paymentMapper, "paymentMapper cannot be null.");
         this.bankingService = Objects.requireNonNull(bankingService, "bankingService cannot be null.");
+        this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher cannot be null.");
     }
 
     /**
@@ -169,6 +175,22 @@ public class PaymentService implements PaymentSettlementPort {
 
         paymentMapper.updateEntity(candidate, claimedEntity);
         paymentRepository.save(claimedEntity);
+
+        if (candidate.getStatus() == PaymentStatus.ROUTING || candidate.getStatus() == PaymentStatus.COMPLIANCE_HOLD) {
+            UUID eventId = UUID.randomUUID();
+            eventPublisher.publishEvent(new PaymentInstructionReceived(
+                    eventId,
+                    candidate.getId().getValue(),
+                    instruction.sourceAccountId().getValue(),
+                    instruction.paymentReference().getValue(),
+                    instruction.amount(),
+                    beneficiary,
+                    candidate.getUpdatedAt(),
+                    instruction.paymentReference().getValue(),
+                    null
+            ));
+        }
+
         return candidate.toView();
     }
 

@@ -19,10 +19,12 @@ import com.crosspaynet.payment.contracts.PaymentStatus;
 import com.crosspaynet.payment.contracts.PaymentView;
 import com.crosspaynet.payment.settlement.PaymentSettlementPort;
 import com.crosspaynet.payment.settlement.RecordPaymentSettlementCommand;
+import com.crosspaynet.settlement.contracts.PaymentSettledEvent;
 import com.crosspaynet.settlement.contracts.SettlePaymentCommand;
 import com.crosspaynet.settlement.contracts.SettlementConflictException;
 import com.crosspaynet.settlement.contracts.SettlementResult;
 import com.crosspaynet.settlement.contracts.SettlementValidationException;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.NoTransactionException;
 import org.springframework.transaction.annotation.Propagation;
@@ -31,6 +33,7 @@ import org.springframework.transaction.interceptor.TransactionAspectSupport;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Transactional orchestration service for CrossPayNet financial settlement.
@@ -49,18 +52,21 @@ public class SettlementService {
     private final PaymentSettlementPort paymentSettlementPort;
     private final BankingService bankingService;
     private final LedgerService ledgerService;
+    private final ApplicationEventPublisher eventPublisher;
 
     public SettlementService(
             PaymentService paymentService,
             PaymentSettlementPort paymentSettlementPort,
             BankingService bankingService,
-            LedgerService ledgerService) {
+            LedgerService ledgerService,
+            ApplicationEventPublisher eventPublisher) {
         this.paymentService = Objects.requireNonNull(paymentService, "paymentService cannot be null.");
         this.paymentSettlementPort = Objects.requireNonNull(
                 paymentSettlementPort, "paymentSettlementPort cannot be null."
         );
         this.bankingService = Objects.requireNonNull(bankingService, "bankingService cannot be null.");
         this.ledgerService = Objects.requireNonNull(ledgerService, "ledgerService cannot be null.");
+        this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher cannot be null.");
     }
 
     /**
@@ -127,6 +133,18 @@ public class SettlementService {
                             ledgerResult.transactionId().getValue()
                     )
             );
+
+            UUID eventId = UUID.randomUUID();
+            eventPublisher.publishEvent(new PaymentSettledEvent(
+                    eventId,
+                    settledPayment.paymentId().getValue(),
+                    ledgerResult.transactionId().getValue(),
+                    command.settlementReference().trim(),
+                    payment.instruction().amount(),
+                    settledPayment.updatedAt(),
+                    command.settlementReference().trim(),
+                    null
+            ));
 
             return new SettlementResult(
                     settledPayment.paymentId(),

@@ -4,6 +4,23 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
+## 2026-10-26 — Phase 7: Distributed Systems, Kafka & Reliability (`events` Module) — *Local Checkpoint*
+
+* **Scope**: Implemented distributed reliability infrastructure and Apache Kafka integration leveraging Spring Modulith's transactional event publication registry for the transactional outbox pattern, an idempotent database inbox deduplicator, and robust Kafka consumer reliability:
+  * **Contracts & Pure Value Objects (`com.crosspaynet.events.contracts`)**: Standardized `EventEnvelope<T>` (`eventId`, `eventType`, `eventVersion`, `occurredAt`, `correlationId`, `causationId`, `payload`), `EventDeduplicator`, `TransactionalConsumerExecutor`, and `ConsumerExecutionResult`. Domain events carry stable immutable identifiers (`eventId`, `occurredAt`, `correlationId`, `causationId`) generated prior to transaction commit.
+  * **Transactional Outbox (`system.event_publication` & `@Externalized`)**: Leverages Spring Modulith's built-in event publication registry and `@Externalized` routing mechanism:
+    - `FundsReserved` (`crosspaynet.banking.funds-reserved.v1`, partition key `accountId`)
+    - `PaymentInstructionReceived` (`crosspaynet.payment.instruction-received.v1`, partition key `paymentId`)
+    - `PaymentSentToNetwork` (`crosspaynet.messaging.message-dispatched.v1`, partition key `paymentId`)
+    - `PaymentSettledEvent` (`crosspaynet.settlement.payment-settled.v1`, partition key `paymentId`)
+    Events are published to PostgreSQL within the business transaction and externalized to Kafka with aggregate partition keys to guarantee per-aggregate order.
+  * **Idempotent Inbox & Persistence (`V14__init_system_event_inbox.sql`, `DatabaseEventDeduplicator`, `DatabaseTransactionalConsumerExecutor`)**: Flyway migration `V14` created `system.event_inbox` (`PRIMARY KEY (message_id, consumer_group)`) and `system.sample_consumer_effect`. Conflict-safe `INSERT ... ON CONFLICT (message_id, consumer_group) DO NOTHING` atomically deduplicates retried Kafka deliveries. `TransactionalConsumerExecutor` runs business consumer effects and inbox marking inside a single transactional boundary (`Propagation.REQUIRES_NEW`), guaranteeing exactly-once side effects.
+  * **Kafka Producer & Consumer Reliability**: Configured `acks=all`, `enable.idempotence=true`, `max.in.flight.requests.per.connection=1`, and `retries=3` for producers. Consumers use `ErrorHandlingDeserializer`, bounded retries (`FixedBackOff` 1s, 3 attempts), and `DeadLetterPublishingRecoverer` routing unretryable or poison-pill payloads (such as malformed envelopes or `EventValidationException`) to dedicated `.DLT` topics with diagnostic headers (`kafka_dlt-exception-fqcn`, `kafka_dlt-original-topic`, etc.).
+  * **Module Boundaries**: `events` module exposes public `@NamedInterface("contracts")` contracts while domain modules (`banking`, `payment`, `messaging`, `settlement`) remain decoupled from Kafka and events internals.
+* **Tests & Verification**: Added [`EventEnvelopeAndValueObjectsTest`](src/test/java/com/crosspaynet/events/EventEnvelopeAndValueObjectsTest.java) (5 tests), [`EventsModulithArchitectureTest`](src/test/java/com/crosspaynet/events/EventsModulithArchitectureTest.java) (1 test), [`TransactionalOutboxPublicationIntegrationTest`](src/test/java/com/crosspaynet/events/TransactionalOutboxPublicationIntegrationTest.java) (3 tests), and [`KafkaReliabilityAndConsumerIntegrationTest`](src/test/java/com/crosspaynet/events/KafkaReliabilityAndConsumerIntegrationTest.java) (4 tests covering duplicate delivery deduplication, bounded retry with recovery, DLT routing of poison pills with diagnostic headers, and transactional outbox event publication across modules). Focused events suite: **13 tests passing** (`0` failures, `0` errors, `0` skipped). Full suite: **220 tests passing** (`0` failures, `0` errors, `0` skipped) across 34 Surefire test suites with Flyway `V1`–`V14`.
+
+---
+
 ## 2026-10-26 — Phase 6 Corrective Update: BIC Canonicalization & Clearing-Account Whitespace Validation — *Accepted & Published to `origin/main` (corrective commit `52c70f01f7cb6b848880d199e23829149a110a66`)*
 
 * **Problem**: Acceptance review of the Phase 6 implementation found that (1) `BicCode` accepts 8- and 11-character BICs without canonicalizing them, so Routing treated `DEUTDEFF` and `DEUTDEFFXXX` as different destinations (causing false `NO_ROUTE_AVAILABLE` rejections and allowing the unique `(destination_bic, currency, priority)` slot to be bypassed), and (2) clearing-account references with leading/trailing Unicode whitespace (e.g. U+00A0) were accepted by Routing but always rejected by `LedgerAccountRef` at settlement time.

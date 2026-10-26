@@ -10,6 +10,7 @@ import com.crosspaynet.messaging.contracts.MessagingValidationException;
 import com.crosspaynet.messaging.contracts.NacknowledgeMessageCommand;
 import com.crosspaynet.messaging.contracts.PaymentMessageStatus;
 import com.crosspaynet.messaging.contracts.PaymentMessageView;
+import com.crosspaynet.messaging.contracts.PaymentSentToNetwork;
 import com.crosspaynet.messaging.contracts.TimeoutMessageCommand;
 import com.crosspaynet.messaging.domain.MessagingLimits;
 import com.crosspaynet.messaging.domain.PaymentMessage;
@@ -27,6 +28,7 @@ import com.crosspaynet.payment.contracts.PaymentNotFoundException;
 import com.crosspaynet.payment.contracts.PaymentReasonCode;
 import com.crosspaynet.payment.contracts.PaymentStatus;
 import com.crosspaynet.payment.contracts.PaymentView;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.NoTransactionException;
 import org.springframework.transaction.annotation.Propagation;
@@ -38,6 +40,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Transactional orchestration service for ISO 20022-inspired financial messaging (Phase 5).
@@ -54,14 +57,17 @@ public class MessagingService {
     private final PaymentMessageRepository messageRepository;
     private final PaymentMessageMapper messageMapper;
     private final PaymentService paymentService;
+    private final ApplicationEventPublisher eventPublisher;
 
     public MessagingService(
             PaymentMessageRepository messageRepository,
             PaymentMessageMapper messageMapper,
-            PaymentService paymentService) {
+            PaymentService paymentService,
+            ApplicationEventPublisher eventPublisher) {
         this.messageRepository = Objects.requireNonNull(messageRepository, "messageRepository cannot be null.");
         this.messageMapper = Objects.requireNonNull(messageMapper, "messageMapper cannot be null.");
         this.paymentService = Objects.requireNonNull(paymentService, "paymentService cannot be null.");
+        this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher cannot be null.");
     }
 
     /**
@@ -167,6 +173,17 @@ public class MessagingService {
                         candidate.getId().getValue().toString()
                 ));
             }
+            UUID eventId = UUID.randomUUID();
+            eventPublisher.publishEvent(new PaymentSentToNetwork(
+                    eventId,
+                    candidate.getPaymentId().getValue(),
+                    candidate.getId().getValue(),
+                    candidate.getAttemptNumber(),
+                    candidate.getRouteReference(),
+                    candidate.getUpdatedAt(),
+                    candidate.getPaymentId().getValue().toString(),
+                    null
+            ));
             return candidate.toView();
         } catch (RuntimeException | Error ex) {
             markCurrentTransactionRollbackOnly();
