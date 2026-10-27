@@ -4,6 +4,49 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
+## 2026-10-28 — Phase 9A Checkpoint 3: Reconciliation Engine & Check Executors — *Implemented Locally (Pending Acceptance Review)*
+
+* **Scope**: Implemented the core operational reconciliation engine, four read-only check executors, discrepancy deduplication with repeat detection tracking, and run orchestration in the `operations` module (`com.crosspaynet.operations`):
+  * **Messaging Public Contract Extension (`com.crosspaynet.messaging.contracts`)**:
+    * Introduced `PaymentMessageQueryPort` in `messaging.contracts` exposing `findLatestMessageByPaymentId(PaymentId)` returning `Optional<PaymentMessageView>`.
+    * Implemented in `MessagingService` delegating to `PaymentMessageRepository.findFirstByPaymentIdOrderByCreatedAtDescAttemptNumberDesc`.
+    * Updated `operations/package-info.java` to declare allowed dependencies on `messaging :: contracts` and `banking`.
+  * **Configuration Properties (`OperationsReconciliationProperties`)**:
+    * Configured under `@ConfigurationProperties(prefix = "crosspaynet.operations.reconciliation")`: `staleWorkflowThreshold` (default 30m), `graceWindow` (default 5m), `staleEventPublicationThreshold` (default 15m), and `pageSize` (default 100).
+  * **Four Read-Only Check Executors (`com.crosspaynet.operations.application.check`)**:
+    * **Check A: `StalePaymentWorkflowCheck` (`STALE_IN_FLIGHT_WORKFLOW`)**:
+      * Scans in-flight payment statuses (`INITIATED`, `ROUTING`, `EXECUTING`, `COMPLIANCE_HOLD`) with deterministic keyset pagination.
+      * Emits discrepancy for payments older than `cutoffTime = now - staleWorkflowThreshold`.
+    * **Check B: `PaymentReservationMismatchCheck` (`RESERVATION_PAYMENT_MISMATCH`)**:
+      * Queries Banking module via `BankingService.findReservation(ReservationToken)` using the reservation token stored on the payment.
+      * Detects:
+        * `COMPLETED` payment with unconsumed reservation (`ACTIVE`, `RELEASED`, or missing).
+        * Terminal failed payment (`REJECTED`, `SETTLEMENT_FAILED`, `COMPLIANCE_REJECTED`) with unreleased reservation (`ACTIVE`, `CONSUMED`).
+        * In-flight active payment with consumed or released reservation.
+    * **Check C: `SettlementLedgerInconsistencyCheck` (`PAYMENT_LEDGER_BREAK`)**:
+      * Inspects settled payments against the financial ledger via `LedgerService.findByPostingKey`.
+      * Detects missing ledger transaction for settled payments, amount mismatches, and currency mismatches.
+    * **Check D: `IncompleteEventPublicationCheck` (`INCOMPLETE_EVENT_PUBLICATION`)**:
+      * Scans incomplete outbox event publications older than `now - staleEventPublicationThreshold` via `EventPublicationQueryPort`.
+      * Reports publications stuck in the transactional outbox without triggering replay or state mutation.
+  * **Discrepancy Deduplication & Repeat Observation (`DiscrepancyRecorder`)**:
+    * Enforces deterministic discrepancy keys (e.g., `STALE_WORKFLOW:payment:<paymentId>`, `RESERVATION_MISMATCH:payment:<paymentId>`, `LEDGER_BREAK:payment:<paymentId>`, `STALE_EVENT:pub:<pubId>`).
+    * Implements repeat observation: increments `consecutiveDetections`, updates `latestRunId` and `lastObservedAt`, and reopens previously resolved discrepancies if they reappear.
+    * Strictly respects data minimization: captures only operational IDs, statuses, monetary amounts, and timestamps in JSONB details. No PII, customer names, account numbers, or raw payloads.
+  * **Run Orchestration & Concurrency (`ReconciliationServiceImpl`)**:
+    * Orchestrates run lifecycle: `IN_PROGRESS -> COMPLETED | PARTIAL_FAILURE | FAILED`.
+    * Enforces concurrency safety via in-memory `ReentrantLock` and database check `ReconciliationRunRepository.existsByStatus(IN_PROGRESS)`.
+    * Handles per-check isolation: catches unexpected check exceptions, marks individual checks as `FAILED`, and allows remaining checks to execute.
+    * Sets overall run status to `PARTIAL_FAILURE` if at least one check succeeded and at least one check failed; `FAILED` if all checks failed.
+  * **Tests & Verification**:
+    * **Check Executor Unit Tests (12 tests passing)**: `StalePaymentWorkflowCheckTest` (4 tests), `PaymentReservationMismatchCheckTest` (3 tests), `SettlementLedgerInconsistencyCheckTest` (3 tests), and `IncompleteEventPublicationCheckTest` (2 tests).
+    * **Application Service Unit Tests (3 tests passing)**: `ReconciliationServiceTest` (3 tests verifying orchestration, concurrency protection, and partial failure status handling).
+    * **PostgreSQL Integration Tests (3 tests passing)**: `ReconciliationEngineIntegrationTest` (3 tests verifying full engine orchestration against PostgreSQL, discrepancy deduplication with consecutive detection increments, and active run rejection).
+    * **Operations Module Suite (43 tests passing)**: All 43 domain, architecture, persistence, and application tests passing.
+    * **Regression Suite (15 tests passing)**: Checkpoint 1 verification suite passing cleanly.
+
+---
+
 ## 2026-10-27 — Phase 9A Checkpoint 2: Operations Domain, Schema & Persistence — *Implemented Locally (Pending Acceptance Review)*
 
 * **Scope**: Introduced foundational domain modeling, PostgreSQL schema migrations, and persistence infrastructure for the new `operations` module (`com.crosspaynet.operations`):

@@ -3,10 +3,12 @@
                 "common",
                 "common :: money",
                 "payment :: contracts",
+                "banking",
                 "banking :: contracts",
                 "ledger",
                 "events",
-                "events :: contracts"
+                "events :: contracts",
+                "messaging :: contracts"
         }
 )
 package com.crosspaynet.operations;

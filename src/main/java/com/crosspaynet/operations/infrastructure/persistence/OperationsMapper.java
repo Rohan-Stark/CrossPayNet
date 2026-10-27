@@ -1,5 +1,8 @@
 package com.crosspaynet.operations.infrastructure.persistence;
 
+import com.crosspaynet.operations.contracts.ReconciliationCheckExecutionView;
+import com.crosspaynet.operations.contracts.ReconciliationDiscrepancyView;
+import com.crosspaynet.operations.contracts.ReconciliationRunView;
 import com.crosspaynet.operations.domain.DiscrepancyId;
 import com.crosspaynet.operations.domain.DiscrepancyKey;
 import com.crosspaynet.operations.domain.DiscrepancyStatus;
@@ -142,5 +145,71 @@ public class OperationsMapper {
         entity.setConsecutiveDetections(domain.getConsecutiveDetections());
         entity.setResolvedAt(domain.getResolvedAt());
         entity.setUpdatedAt(domain.getUpdatedAt());
+    }
+
+    public ReconciliationRunView toView(ReconciliationRun domain) {
+        if (domain == null) return null;
+        return new ReconciliationRunView(
+                domain.getRunId(),
+                domain.getStatus(),
+                domain.getStartedAt(),
+                domain.getCompletedAt(),
+                domain.getChecksEvaluated(),
+                domain.getDiscrepancyCount(),
+                domain.getTriggeredBy(),
+                domain.getFailureReason(),
+                domain.getCreatedAt(),
+                domain.getUpdatedAt()
+        );
+    }
+
+    public ReconciliationRunView toView(ReconciliationRunEntity entity) {
+        if (entity == null) return null;
+        return toView(toDomain(entity));
+    }
+
+    public ReconciliationCheckExecutionView toView(ReconciliationCheckExecution domain) {
+        if (domain == null) return null;
+        return new ReconciliationCheckExecutionView(
+                domain.getCheckExecutionId(),
+                domain.getRunId(),
+                domain.getCheckName(),
+                domain.getStatus(),
+                domain.getItemsScanned(),
+                domain.getDiscrepanciesFound(),
+                domain.getErrorSummary(),
+                domain.getExecutedAt()
+        );
+    }
+
+    public ReconciliationCheckExecutionView toView(ReconciliationCheckExecutionEntity entity) {
+        if (entity == null) return null;
+        return toView(toDomain(entity));
+    }
+
+    public ReconciliationDiscrepancyView toView(ReconciliationDiscrepancy domain) {
+        if (domain == null) return null;
+        return new ReconciliationDiscrepancyView(
+                domain.getDiscrepancyId(),
+                domain.getDiscrepancyKey(),
+                domain.getFirstRunId(),
+                domain.getLatestRunId(),
+                domain.getDiscrepancyType(),
+                domain.getOperationalEntityId(),
+                domain.getStatus(),
+                domain.getSummary(),
+                domain.getDetails(),
+                domain.getFirstDetectedAt(),
+                domain.getLastObservedAt(),
+                domain.getConsecutiveDetections(),
+                domain.getResolvedAt(),
+                domain.getCreatedAt(),
+                domain.getUpdatedAt()
+        );
+    }
+
+    public ReconciliationDiscrepancyView toView(ReconciliationDiscrepancyEntity entity) {
+        if (entity == null) return null;
+        return toView(toDomain(entity));
     }
 }

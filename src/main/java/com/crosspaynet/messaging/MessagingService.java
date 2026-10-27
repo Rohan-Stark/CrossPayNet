@@ -8,6 +8,7 @@ import com.crosspaynet.messaging.contracts.MessageId;
 import com.crosspaynet.messaging.contracts.MessageNotFoundException;
 import com.crosspaynet.messaging.contracts.MessagingValidationException;
 import com.crosspaynet.messaging.contracts.NacknowledgeMessageCommand;
+import com.crosspaynet.messaging.contracts.PaymentMessageQueryPort;
 import com.crosspaynet.messaging.contracts.PaymentMessageStatus;
 import com.crosspaynet.messaging.contracts.PaymentMessageView;
 import com.crosspaynet.messaging.contracts.PaymentSentToNetwork;
@@ -52,7 +53,7 @@ import java.util.UUID;
  * decoupled from {@code Banking}, {@code Ledger}, and {@code Settlement}.
  */
 @Service
-public class MessagingService {
+public class MessagingService implements PaymentMessageQueryPort {
 
     private final PaymentMessageRepository messageRepository;
     private final PaymentMessageMapper messageMapper;

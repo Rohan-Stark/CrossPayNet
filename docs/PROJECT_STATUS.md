@@ -1,7 +1,7 @@
 # Project Status
 
 Current Phase: Phase 9A — Read-Only Operational Reconciliation
-Current Subphase: Checkpoint 2 Implemented Locally (Operations Domain, Schema & Persistence)
+Current Subphase: Checkpoint 3 Implemented Locally (Reconciliation Engine & Check Executors)
 
 ## Completed Phases
 * Phase 0 — Engineering Constitution
@@ -48,10 +48,11 @@ Current Subphase: Checkpoint 2 Implemented Locally (Operations Domain, Schema & 
 
 * **Phase 9A — Read-Only Operational Reconciliation (`operations` Module)** ⏳ (Implemented Locally, Pending Review)
   * **Checkpoint 1 (Read-Only Public Contracts)**: `PaymentReconciliationPort` with deterministic keyset pagination, `BankingService.findReservation(ReservationToken)`, `LedgerService.findByPostingKey(LedgerPostingKey)`, and `EventPublicationQueryPort` with metadata minimization (`585e14f`, `9b833df`).
-  * **Checkpoint 2 (Operations Domain, Schema & Persistence)**: Dedicated `com.crosspaynet.operations` module declaration, Flyway migration `V16__init_operations_schema.sql` (`operations.reconciliation_run`, `operations.reconciliation_check_execution`, `operations.reconciliation_discrepancy`), JSONB details, repeat detection tracking (`consecutive_detections`), optimistic locking (`version`), and domain/persistence mappings.
+  * **Checkpoint 2 (Operations Domain, Schema & Persistence)**: Dedicated `com.crosspaynet.operations` module declaration, Flyway migration `V16__init_operations_schema.sql` (`operations.reconciliation_run`, `operations.reconciliation_check_execution`, `operations.reconciliation_discrepancy`), JSONB details, repeat detection tracking (`consecutive_detections`), optimistic locking (`version`), and domain/persistence mappings (`1501b18`).
+  * **Checkpoint 3 (Reconciliation Engine & Check Executors)**: `ReconciliationService` engine orchestrating four read-only check executors (`StalePaymentWorkflowCheck`, `PaymentReservationMismatchCheck`, `SettlementLedgerInconsistencyCheck`, `IncompleteEventPublicationCheck`), `PaymentMessageQueryPort` in `messaging::contracts`, discrepancy deduplication with repeat detection (`DiscrepancyRecorder`), `PARTIAL_FAILURE` lifecycle semantics, and concurrency locking.
 
 ## Current/Next Phase
-* **Phase 9A — Read-Only Operational Reconciliation (Checkpoint 3: Reconciliation Execution Engine & Checks)** ▶ NEXT
+* **Phase 9A — Read-Only Operational Reconciliation (Checkpoint 4: Operations API, Security & Verification)** ▶ NEXT
 
 ## Upcoming Phases
 * Phase 9 — Observability & Operations

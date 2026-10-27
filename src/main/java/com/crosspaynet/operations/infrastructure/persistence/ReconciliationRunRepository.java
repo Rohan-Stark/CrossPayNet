@@ -10,4 +10,8 @@ import java.util.UUID;
 public interface ReconciliationRunRepository extends JpaRepository<ReconciliationRunEntity, UUID> {
 
     List<ReconciliationRunEntity> findByStatus(String status);
+
+    boolean existsByStatus(String status);
+
+    java.util.Optional<ReconciliationRunEntity> findTopByOrderByStartedAtDesc();
 }
