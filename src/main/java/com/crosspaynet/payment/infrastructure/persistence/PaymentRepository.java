@@ -1,5 +1,7 @@
 package com.crosspaynet.payment.infrastructure.persistence;
 
+import com.crosspaynet.payment.contracts.PaymentStatus;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -7,7 +9,9 @@ import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 public interface PaymentRepository extends JpaRepository<PaymentEntity, UUID> {
@@ -15,6 +19,33 @@ public interface PaymentRepository extends JpaRepository<PaymentEntity, UUID> {
     Optional<PaymentEntity> findBySourceAccountIdAndPaymentReference(
             UUID sourceAccountId,
             String paymentReference
+    );
+
+    @Query("""
+        SELECT p FROM PaymentEntity p
+         WHERE p.status IN :statuses
+           AND p.updatedAt <= :cutoffTime
+         ORDER BY p.updatedAt ASC, p.paymentId ASC
+        """)
+    List<PaymentEntity> findForReconciliationFirstPage(
+            @Param("statuses") Set<PaymentStatus> statuses,
+            @Param("cutoffTime") Instant cutoffTime,
+            Pageable pageable
+    );
+
+    @Query("""
+        SELECT p FROM PaymentEntity p
+         WHERE p.status IN :statuses
+           AND p.updatedAt <= :cutoffTime
+           AND (p.updatedAt > :afterUpdatedAt OR (p.updatedAt = :afterUpdatedAt AND p.paymentId > :afterPaymentId))
+         ORDER BY p.updatedAt ASC, p.paymentId ASC
+        """)
+    List<PaymentEntity> findForReconciliationNextPage(
+            @Param("statuses") Set<PaymentStatus> statuses,
+            @Param("cutoffTime") Instant cutoffTime,
+            @Param("afterUpdatedAt") Instant afterUpdatedAt,
+            @Param("afterPaymentId") UUID afterPaymentId,
+            Pageable pageable
     );
 
     @Modifying

@@ -160,6 +160,19 @@ public class LedgerService {
                 .map(LedgerTransaction::toView);
     }
 
+    /**
+     * Retrieves a read-only view of a posted transaction and its immutable entry lines by posting key.
+     */
+    @Transactional(propagation = Propagation.SUPPORTS, readOnly = true)
+    public Optional<LedgerTransactionView> findByPostingKey(LedgerPostingKey postingKey) {
+        if (postingKey == null) {
+            throw new LedgerValidationException("postingKey cannot be null.");
+        }
+        return repository.findByPostingKey(postingKey.getValue())
+                .map(mapper::toDomain)
+                .map(LedgerTransaction::toView);
+    }
+
     private int insertHeader(LedgerTransaction transaction) {
         UUID reversedTxId = transaction.getReversedTransactionId() != null
                 ? transaction.getReversedTransactionId().getValue()

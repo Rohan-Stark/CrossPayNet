@@ -4,6 +4,34 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
+## 2026-10-27 — Phase 9A Checkpoint 1: Read-Only Public Contracts for Operational Reconciliation — *Implemented Locally (Pending Acceptance Review)*
+
+* **Scope**: Implemented non-invasive, strictly read-only public contracts across the Payment, Banking, Ledger, and Events modules to support deterministic, cross-module operational reconciliation with bounded keyset pagination and data minimization:
+  * **Payment Module (`com.crosspaynet.payment.contracts`, `@NamedInterface("contracts")`)**:
+    * **Reconciliation Query Port (`PaymentReconciliationPort`)**: Exposes `findPaymentsForReconciliation(Set<PaymentStatus>, Instant cutoffTime, PaymentReconciliationCursor, int limit)` returning `PaymentReconciliationPage`.
+    * **Deterministic Keyset Pagination**: Stable ordering by `(updatedAt ASC, paymentId ASC)`. Uses `(updatedAt, paymentId)` as keyset continuation cursor, with `hasMore` and `nextCursor` disambiguating scan completion from page limits.
+    * **Data Minimization Projection (`PaymentReconciliationRecord`)**: Exposes minimal operational correlation fields (`paymentId`, `status`, `sourceAccountId`, `amount`, `reservationToken`, `routeReference`, `externalDispatchReference`, `ledgerTransactionId`, `statusReasonCode`, `createdAt`, `updatedAt`) while omitting customer PII (beneficiary name, account number, BIC).
+    * **Implementation**: Implemented in `PaymentService` via keyset queries in `PaymentRepository`.
+  * **Banking Module (`com.crosspaynet.banking.contracts`, `@NamedInterface("contracts")`)**:
+    * **Reservation View (`ReservationView`)**: Public read-only record exposing `(reservationToken, accountId, status, amount, paymentReference)`.
+    * **Read-Only Inspection (`BankingService.findReservation`)**: Exposes `findReservation(ReservationToken)` returning `Optional<ReservationView>`, backed by `accountRepository.findReservationByToken`. Preserves all reservation and balance invariants with zero state mutations.
+  * **Ledger Module (`com.crosspaynet.ledger`)**:
+    * **Posting Key Lookup (`LedgerService.findByPostingKey`)**: Added read-only query `findByPostingKey(LedgerPostingKey)` delegating to existing `repository.findByPostingKey` and mapping through `LedgerTransactionMapper` to `LedgerTransactionView`. Strictly read-only without mutations or reversals.
+  * **Events Module (`com.crosspaynet.events.contracts`, `@NamedInterface("contracts")`)**:
+    * **Publication Query Port (`EventPublicationQueryPort`)**: Exposes `findIncompletePublications(Instant cutoffTime, EventPublicationCursor, int limit)` and `countIncompletePublications(Instant cutoffTime)`.
+    * **Safe Metadata Projection (`StalePublicationView`)**: Exposes `(publicationId, listenerId, eventType, publicationDate, completionAttempts, lastResubmissionDate)` without exposing serialized event payloads.
+    * **Encapsulated Implementation (`DatabaseEventPublicationQueryService`)**: Reads `system.event_publication` via JDBC with deterministic keyset ordering `(publication_date ASC, id ASC)`. Strictly read-only: never replays, resubmits, or alters publication records.
+* **Invariants Maintained**:
+  * No Operations module, database migration V16, reconciliation tables, or REST endpoints introduced in Checkpoint 1.
+  * Module-to-module reads strictly respect Spring Modulith boundaries via named public contracts. No cross-module repository or database queries.
+  * Zero automated mutations: no payment state alterations, no reservation releases/consumptions, no ledger postings, and no publication resubmissions.
+* **Tests & Verification**:
+  * **Focused Unit Tests (14 tests passing)**: `PaymentReconciliationPortUnitTest` (4 tests), `BankingReservationQueryUnitTest` (3 tests), `LedgerPostingKeyQueryUnitTest` (3 tests), and `EventPublicationQueryServiceUnitTest` (4 tests).
+  * **Modulith Architecture Verification (26 tests passing)**: Full verification across all modules (`BankingModulithTest`, `ComplianceModulithArchitectureTest`, `EventsModulithArchitectureTest`, `LedgerArchitectureAndLimitsTest`, `MessagingArchitectureTest`, `PaymentArchitectureTest`, `RoutingArchitectureTest`, `SecurityModulithArchitectureTest`, `SettlementArchitectureTest`) passed with 0 violations.
+  * **In-Memory Test Suite (135 tests passing)**: Total of 135 unit, domain, and architecture tests passed with 0 failures, 0 errors, 0 skips.
+
+---
+
 ## 2026-10-26 — Phase 8: Security, RBAC & Compliance (`security` and `compliance` Modules) — *Implemented Locally (Pending Acceptance Review)*
 
 * **Scope**: Implemented end-to-end security, role-based access control (RBAC), data sanitization/masking, and compliance screening with persistent review records:

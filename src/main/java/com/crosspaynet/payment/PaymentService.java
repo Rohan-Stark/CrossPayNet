@@ -19,6 +19,13 @@ import com.crosspaynet.payment.contracts.PaymentInstruction;
 import com.crosspaynet.payment.contracts.PaymentInstructionReceived;
 import com.crosspaynet.payment.contracts.PaymentNotFoundException;
 import com.crosspaynet.payment.contracts.PaymentReasonCode;
+import com.crosspaynet.payment.contracts.PaymentReconciliationCursor;
+import com.crosspaynet.payment.contracts.PaymentReconciliationPage;
+import com.crosspaynet.payment.contracts.PaymentReconciliationPort;
+import com.crosspaynet.payment.contracts.PaymentReconciliationRecord;
+import org.springframework.data.domain.PageRequest;
+import java.util.List;
+import java.util.Set;
 import com.crosspaynet.payment.contracts.PaymentReferenceConflictException;
 import com.crosspaynet.payment.contracts.PaymentStatus;
 import com.crosspaynet.payment.contracts.PaymentValidationException;
@@ -53,7 +60,7 @@ import java.util.UUID;
  * and exposes {@link PaymentSettlementPort} for the future Settlement module.
  */
 @Service
-public class PaymentService implements PaymentSettlementPort {
+public class PaymentService implements PaymentSettlementPort, PaymentReconciliationPort {
 
     private final PaymentRepository paymentRepository;
     private final PaymentMapper paymentMapper;
@@ -434,6 +441,73 @@ public class PaymentService implements PaymentSettlementPort {
                 )
                 .map(paymentMapper::toDomain)
                 .map(Payment::toView);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PaymentReconciliationPage findPaymentsForReconciliation(
+            Set<PaymentStatus> statuses,
+            Instant cutoffTime,
+            PaymentReconciliationCursor cursor,
+            int limit) {
+        if (statuses == null || statuses.isEmpty()) {
+            throw new PaymentValidationException("statuses cannot be null or empty.");
+        }
+        if (cutoffTime == null) {
+            throw new PaymentValidationException("cutoffTime cannot be null.");
+        }
+        if (limit < 1) {
+            throw new PaymentValidationException("limit must be at least 1.");
+        }
+        int effectiveLimit = Math.min(limit, 500);
+
+        PageRequest pageRequest = PageRequest.of(0, effectiveLimit + 1);
+        List<PaymentEntity> entities;
+        if (cursor == null) {
+            entities = paymentRepository.findForReconciliationFirstPage(statuses, cutoffTime, pageRequest);
+        } else {
+            entities = paymentRepository.findForReconciliationNextPage(
+                    statuses,
+                    cutoffTime,
+                    cursor.updatedAt(),
+                    cursor.paymentId().getValue(),
+                    pageRequest
+            );
+        }
+
+        boolean hasMore = entities.size() > effectiveLimit;
+        List<PaymentEntity> pagedEntities = hasMore ? entities.subList(0, effectiveLimit) : entities;
+
+        List<PaymentReconciliationRecord> records = pagedEntities.stream()
+                .map(this::toReconciliationRecord)
+                .toList();
+
+        Optional<PaymentReconciliationCursor> nextCursor = Optional.empty();
+        if (hasMore && !records.isEmpty()) {
+            PaymentReconciliationRecord last = records.get(records.size() - 1);
+            nextCursor = Optional.of(new PaymentReconciliationCursor(last.updatedAt(), last.paymentId()));
+        }
+
+        return new PaymentReconciliationPage(records, hasMore, nextCursor);
+    }
+
+    private PaymentReconciliationRecord toReconciliationRecord(PaymentEntity entity) {
+        return new PaymentReconciliationRecord(
+                PaymentId.of(entity.getPaymentId()),
+                entity.getStatus(),
+                new AccountId(entity.getSourceAccountId()),
+                new com.crosspaynet.common.money.Money(
+                        entity.getAmount(),
+                        new com.crosspaynet.common.money.Currency(entity.getCurrency())
+                ),
+                Optional.ofNullable(entity.getReservationToken()).map(ReservationToken::new),
+                Optional.ofNullable(entity.getRouteReference()),
+                Optional.ofNullable(entity.getExternalDispatchReference()),
+                Optional.ofNullable(entity.getLedgerTransactionId()),
+                Optional.ofNullable(entity.getStatusReasonCode()),
+                entity.getCreatedAt(),
+                entity.getUpdatedAt()
+        );
     }
 
     private PaymentEntity loadEntityOrThrow(PaymentId paymentId) {

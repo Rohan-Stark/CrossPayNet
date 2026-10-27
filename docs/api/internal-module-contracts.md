@@ -47,6 +47,16 @@ Synchronous contracts are used when immediate consistency is required to satisfy
   * Throws `InvalidAccountStateException` if an `ACTIVE` reservation is consumed while the account is not `ACTIVE` (`FROZEN` or `CLOSED`).
 * **Behavior**: Synchronous (`Propagation.REQUIRED`). Idempotent no-op if the reservation is already `CONSUMED` (checked prior to account-status validation). Updates the existing `FundReservationEntity` in place without deleting reservation history.
 
+### `Banking.FindReservation` (Phase 9A)
+* **Purpose**: Retrieve an immutable read-only view of a fund reservation by its unique `ReservationToken` for operational reconciliation without exposing internal persistence entities or modifying balances.
+* **Exposed By**: Banking Module (`BankingService.findReservation(ReservationToken reservationToken)`)
+* **Consumed By**: Operations Module / Reconciliation Services
+* **Input Concepts**:
+  * `ReservationToken` (`com.crosspaynet.banking.contracts.ReservationToken`)
+* **Output Concepts**:
+  * `Optional<ReservationView>` where `ReservationView` exposes `reservationToken`, `accountId`, `status` (`ReservationStatus { ACTIVE, RELEASED, CONSUMED }`), `amount`, and `paymentReference`.
+* **Behavior**: Synchronous read-only query (`readOnly = true`). Preserves all financial and reservation invariants.
+
 ### `Routing.SelectRoute`, `Routing.RoutePayment` & `Routing.PublicContracts` (Phase 6)
 * **Purpose**: Select the correspondent route for a cross-border transfer and record the routing decision on the Payment.
 * **Exposed By**: `com.crosspaynet.routing.RoutingService`:
@@ -142,6 +152,16 @@ Synchronous contracts are used when immediate consistency is required to satisfy
   * `Optional<LedgerTransactionView>` where `LedgerTransactionView` exposes `transactionId`, `transactionType` (`LedgerTransactionType { STANDARD, REVERSAL }`), `postingKey`, `currency`, `totalAmount`, `externalReference`, optional `description`, optional `reversedTransactionId`, `postedAt`, and immutable `List<LedgerEntryView>` (each `LedgerEntryView(UUID entryId, int lineNumber, LedgerAccountRef account, EntryDirection direction, Money amount)`)
 * **Behavior**: Synchronous read-only query (`readOnly = true`).
 
+### `Ledger.FindByPostingKey` (Phase 9A)
+* **Purpose**: Retrieve an immutable read-only view of a posted `LedgerTransaction` and its entry lines by deterministic `LedgerPostingKey` (e.g. `PAYMENT_SETTLEMENT:{paymentId}`) for cross-module reconciliation checks.
+* **Exposed By**: Ledger Module (`LedgerService.findByPostingKey(LedgerPostingKey postingKey)`)
+* **Consumed By**: Operations Module / Reconciliation Services
+* **Input Concepts**:
+  * `postingKey`: `LedgerPostingKey`
+* **Output Concepts**:
+  * `Optional<LedgerTransactionView>`
+* **Behavior**: Synchronous read-only query (`readOnly = true`). Never modifies ledger state or executes reversals.
+
 ### `Payment.PublicContracts`, `Payment.OrchestrationService` & `Payment.SettlementPort` (Phase 4 CP1–CP3)
 * **Purpose**: Provide transactional orchestration of the cross-border payment workflow (`PaymentService`), narrow public named interfaces for Payment commands/views (`payment :: contracts`), and final settlement outcome recording (`payment :: settlement`), without exposing `payment.domain` or `payment.infrastructure.persistence`.
 * **Exposed By**:
@@ -155,6 +175,7 @@ Synchronous contracts are used when immediate consistency is required to satisfy
     * `failPayment(FailPaymentCommand)`: `@Transactional(propagation = Propagation.REQUIRED)`. Validates post-commitment pre-settlement state (`EXECUTING` or `PENDING_EXTERNAL`) and confirmed failure reason code (`EXTERNAL_NETWORK_REJECTED` or `OPERATIONAL_FAILURE`) in memory before calling `BankingService.releaseReservation` and persisting `FAILED`. Unknown external outcomes remain in `PENDING_EXTERNAL` with their reservation active. Uses default rollback behavior for atomic reservation release and state update.
     * `recordSettlement(RecordPaymentSettlementCommand)`: `@Transactional(propagation = Propagation.REQUIRED)`. Implements `PaymentSettlementPort` (`PENDING_EXTERNAL -> SETTLED` with `ledgerTransactionId`, idempotent if already `SETTLED` with the same `ledgerTransactionId`). Does **not** call `BankingService.consumeReservation` or `LedgerService.postTransaction`.
     * `findPayment(PaymentId)` & `findBySourceAccountAndReference(AccountId, PaymentReference)`: `@Transactional(readOnly = true)` queries returning `Optional<PaymentView>`.
+    * `findPaymentsForReconciliation(Set<PaymentStatus>, Instant, PaymentReconciliationCursor, int)`: `@Transactional(readOnly = true)`. Implements `PaymentReconciliationPort` providing bounded keyset-paginated scans with deterministic tie-breaking over `(updatedAt ASC, paymentId ASC)` and continuation support (`PaymentReconciliationPage`), returning minimal `PaymentReconciliationRecord` projections without customer PII.
   * `com.crosspaynet.payment.contracts` (`@NamedInterface("contracts")`): `PaymentId`, `BicCode`, `BeneficiaryDetails` (`beneficiaryName` $\le 140$ UTF-16 code units, `beneficiaryAccountNumber` $\le 34$ UTF-16 code units, `beneficiaryBankBic`), `PaymentInstruction` (`sourceAccountId`, `paymentReference` $\le 255$ UTF-16 code units, `beneficiary`, `amount`), `PaymentStatus`, `PaymentReasonCode`, `PaymentView`, command records (`InitiatePaymentCommand`, `CancelPaymentCommand`, `RejectPaymentCommand`, `CommitPaymentExecutionCommand`, `MarkPaymentDispatchedCommand`, `FailPaymentCommand`), and the `PaymentException` hierarchy (`PaymentValidationException`, `PaymentNotFoundException`, `InvalidPaymentStateException`, `PaymentReferenceConflictException`).
   * `com.crosspaynet.payment.settlement` (`@NamedInterface("settlement")`): `PaymentSettlementPort` and `RecordPaymentSettlementCommand(PaymentId paymentId, UUID ledgerTransactionId)`.
 * **Boundary & Validation Alignment**:
@@ -196,6 +217,19 @@ Synchronous contracts are used when immediate consistency is required to satisfy
 * **Boundary & Security Notes**:
   * `PayloadDigest` (`crosspaynet-message-digest-v1`) is an educational SHA-256 tamper-detection digest verified on `sign()` and on `PaymentMessage.restore(...)`, not a cryptographic digital signature (no asymmetric keys or PKI).
   * `Messaging` depends only on `payment`, `payment :: contracts`, `common`, and `common :: money`; it never imports `banking`, `ledger`, or `settlement`.
+
+### `Events.EventPublicationQueryPort` (Phase 9A)
+* **Purpose**: Provide encapsulated, read-only inspection of incomplete event publications in `system.event_publication` with bounded keyset pagination and data minimization.
+* **Exposed By**: Events Module (`EventPublicationQueryPort` implemented by `DatabaseEventPublicationQueryService`)
+* **Consumed By**: Operations Module / Reconciliation Services
+* **Input Concepts**:
+  * `cutoffTime`: `Instant`
+  * `cursor`: `EventPublicationCursor(Instant publicationDate, UUID publicationId)`
+  * `limit`: `int` (capped at 500)
+* **Output Concepts**:
+  * `EventPublicationPage(List<StalePublicationView> items, boolean hasMore, Optional<EventPublicationCursor> nextCursor)`
+  * `countIncompletePublications(Instant cutoffTime)` returning total uncompleted count
+* **Behavior**: Synchronous read-only JDBC query (`readOnly = true`). Omits raw serialized event payloads to enforce data minimization. Strictly inspects publications; never resubmits, replays, or completes them.
 
 ## 2. Asynchronous Contracts (Domain Events)
 

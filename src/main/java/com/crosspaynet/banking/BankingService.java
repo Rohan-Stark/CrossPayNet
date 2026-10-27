@@ -7,7 +7,10 @@ import com.crosspaynet.banking.contracts.InsufficientFundsException;
 import com.crosspaynet.banking.contracts.InvalidAccountStateException;
 import com.crosspaynet.banking.contracts.InvalidReservationStateException;
 import com.crosspaynet.banking.contracts.PaymentReference;
+import com.crosspaynet.banking.contracts.ReservationStatus;
 import com.crosspaynet.banking.contracts.ReservationToken;
+import com.crosspaynet.banking.contracts.ReservationView;
+import com.crosspaynet.common.money.Currency;
 import com.crosspaynet.banking.domain.Account;
 import com.crosspaynet.banking.infrastructure.persistence.AccountEntity;
 import com.crosspaynet.banking.infrastructure.persistence.AccountMapper;
@@ -166,6 +169,21 @@ public class BankingService {
         return accountRepository.findById(accountId.getValue())
                 .map(entity -> entity.getCustomerId().equals(customerId))
                 .orElse(false);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<ReservationView> findReservation(ReservationToken reservationToken) {
+        if (reservationToken == null) {
+            throw new IllegalArgumentException("ReservationToken cannot be null.");
+        }
+        return accountRepository.findReservationByToken(reservationToken.getValue())
+                .map(entity -> new ReservationView(
+                        new ReservationToken(entity.getReservationToken()),
+                        new AccountId(entity.getAccount().getAccountId()),
+                        ReservationStatus.valueOf(entity.getStatus()),
+                        new Money(entity.getAmount(), new Currency(entity.getCurrency())),
+                        PaymentReference.of(entity.getPaymentReference())
+                ));
     }
 
     @Transactional(readOnly = true)
