@@ -4,6 +4,35 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
+## 2026-10-27 — Phase 9A Checkpoint 2: Operations Domain, Schema & Persistence — *Implemented Locally (Pending Acceptance Review)*
+
+* **Scope**: Introduced foundational domain modeling, PostgreSQL schema migrations, and persistence infrastructure for the new `operations` module (`com.crosspaynet.operations`):
+  * **Module Architecture & Boundary Enforcement (`com.crosspaynet.operations`)**:
+    * **Package Declaration (`package-info.java`)**: Explicitly declares allowed dependencies on `payment::contracts`, `banking::contracts`, `ledger`, `events::contracts`, `security`, and `shared`. Prohibits internal package access or direct database queries to other modules.
+    * **Spring Modulith Verification (`OperationsModulithArchitectureTest`)**: Enforces strict module isolation, cycle absence, and encapsulation.
+  * **Flyway Migration (`V16__init_operations_schema.sql`)**:
+    * Created dedicated schema `operations` and three isolated tables:
+      * `operations.reconciliation_run`: Tracks run lifecycle (`IN_PROGRESS -> COMPLETED | FAILED`), trigger provenance (`triggered_by`), counters (`checks_evaluated >= 0`, `discrepancy_count >= 0`), optimistic locking (`version`), and timestamp invariants (`started_at <= completed_at`).
+      * `operations.reconciliation_check_execution`: Captures per-check execution results (`COMPLETED | FAILED | SKIPPED`), scanned/discrepancy counts, error summary, and foreign key to parent run with `ON DELETE RESTRICT`. Enforces unique `(run_id, check_name)`.
+      * `operations.reconciliation_discrepancy`: Deduplicated discrepancy tracking across runs keyed by unique `discrepancy_key` (`VARCHAR(255) UNIQUE`). Supports rich diagnostic metadata in `JSONB` (`details`), repeat detection tracking (`consecutive_detections >= 1`), operational entity cross-referencing without foreign keys, and status-timestamp coherence for resolutions (`RESOLVED_INTERNALLY`, `RESOLVED_EXTERNALLY`).
+    * Preserves zero cross-module foreign key constraints and prevents cascade-deletions (`ON DELETE RESTRICT`).
+  * **Pure Domain Models & Lifecycle Invariants (`com.crosspaynet.operations.domain`)**:
+    * **Aggregates & Entities**: `ReconciliationRun`, `ReconciliationCheckExecution`, and `ReconciliationDiscrepancy`.
+    * **Repeat Observation & Reopen Semantics**: `ReconciliationDiscrepancy.recordRepeatObservation` updates `latestRunId`, advances `lastObservedAt`, increments `consecutiveDetections`, and automatically transitions back to `OPEN` if the discrepancy was previously resolved.
+    * **Value Objects & Strongly-Typed Identifiers**: `ReconciliationRunId`, `ReconciliationCheckExecutionId`, `DiscrepancyId`, `DiscrepancyKey`, `ReconciliationRunStatus`, `ReconciliationCheckStatus`, `DiscrepancyType`, and `DiscrepancyStatus`.
+    * **Exception Hierarchy**: `OperationsException`, `OperationsValidationException`, `InvalidOperationsStateException`, `OperationsNotFoundException`, and `OperationsConflictException`.
+  * **Persistence Layer & Mappings (`com.crosspaynet.operations.infrastructure.persistence`)**:
+    * JPA entities: `ReconciliationRunEntity`, `ReconciliationCheckExecutionEntity`, `ReconciliationDiscrepancyEntity` with optimistic locking (`@Version`).
+    * Spring Data Repositories: `ReconciliationRunRepository`, `ReconciliationCheckExecutionRepository`, `ReconciliationDiscrepancyRepository` with keyset and status lookup methods.
+    * Domain-to-Entity Mapper: `OperationsMapper` aligning entity creation and updates with Spring Data JPA's optimistic locking semantics (`null` version on new entities).
+* **Tests & Verification**:
+  * **Domain Unit Tests (15 tests passing)**: `ReconciliationRunTest` (7 tests), `ReconciliationCheckExecutionTest` (2 tests), `ReconciliationDiscrepancyTest` (6 tests).
+  * **Modulith Architecture Tests (3 tests passing)**: `OperationsModulithArchitectureTest` (3 tests verifying boundaries, encapsulation, and acyclic module dependencies).
+  * **PostgreSQL Integration Tests (7 tests passing)**: `OperationsPersistenceIntegrationTest` (7 tests verifying run lifecycle persistence, check executions, JSONB query operators, optimistic locking version increments, unique discrepancy key constraints, and database check constraints).
+  * **Regression Suite (15 tests passing)**: Checkpoint 1 verification tests (`PaymentReconciliationPortIntegrationTest`, `BankingReservationQueryIntegrationTest`, `LedgerPostingKeyQueryIntegrationTest`, `EventPublicationQueryPortIntegrationTest`) passing with 0 failures.
+
+---
+
 ## 2026-10-27 — Phase 9A Checkpoint 1: Read-Only Public Contracts for Operational Reconciliation — *Implemented Locally (Pending Acceptance Review)*
 
 * **Scope**: Implemented non-invasive, strictly read-only public contracts across the Payment, Banking, Ledger, and Events modules to support deterministic, cross-module operational reconciliation with bounded keyset pagination and data minimization:
