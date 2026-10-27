@@ -38,6 +38,7 @@ class BankingReservationQueryIntegrationTest {
     void setUp() {
         UUID customerId = UUID.randomUUID();
         UUID accountUuid = UUID.randomUUID();
+        jdbcTemplate.update("INSERT INTO banking.customer (customer_id) VALUES (?) ON CONFLICT DO NOTHING", customerId);
         jdbcTemplate.update("""
             INSERT INTO banking.account (
                 account_id, customer_id, currency, status, available_balance, reserved_amount, version

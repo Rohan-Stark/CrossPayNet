@@ -8,6 +8,7 @@ import com.crosspaynet.common.money.Currency;
 import com.crosspaynet.common.money.Money;
 import com.crosspaynet.payment.contracts.BeneficiaryDetails;
 import com.crosspaynet.payment.contracts.BicCode;
+import com.crosspaynet.payment.contracts.CancelPaymentCommand;
 import com.crosspaynet.payment.contracts.InitiatePaymentCommand;
 import com.crosspaynet.payment.contracts.PaymentId;
 import com.crosspaynet.payment.contracts.PaymentReconciliationCursor;
@@ -56,8 +57,10 @@ class PaymentReconciliationPortIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        jdbcTemplate.update("DELETE FROM payment.payment");
         UUID customerId = UUID.randomUUID();
         UUID accountUuid = UUID.randomUUID();
+        jdbcTemplate.update("INSERT INTO banking.customer (customer_id) VALUES (?) ON CONFLICT DO NOTHING", customerId);
         jdbcTemplate.update("""
             INSERT INTO banking.account (
                 account_id, customer_id, currency, status, available_balance, reserved_amount, version
@@ -82,14 +85,15 @@ class PaymentReconciliationPortIntegrationTest {
 
             Instant updatedTime = baseTime.plus(i * 10, ChronoUnit.MINUTES);
             jdbcTemplate.update(
-                    "UPDATE payment.payment SET updated_at = ? WHERE payment_id = ?",
+                    "UPDATE payment.payment SET created_at = ?, updated_at = ? WHERE payment_id = ?",
+                    Timestamp.from(updatedTime),
                     Timestamp.from(updatedTime),
                     pv.paymentId().getValue()
             );
         }
 
         Instant cutoffTime = baseTime.plus(1, ChronoUnit.HOURS);
-        Set<PaymentStatus> statuses = Set.of(PaymentStatus.COMPLIANCE_HOLD);
+        Set<PaymentStatus> statuses = Set.of(PaymentStatus.ROUTING);
 
         PaymentReconciliationPage page1 = paymentReconciliationPort.findPaymentsForReconciliation(
                 statuses,
@@ -143,8 +147,8 @@ class PaymentReconciliationPortIntegrationTest {
                 new Money(new BigDecimal("10.0000"), new Currency("USD"))
         ));
         Instant oldTime = baseTime.minus(30, ChronoUnit.MINUTES);
-        jdbcTemplate.update("UPDATE payment.payment SET updated_at = ? WHERE payment_id = ?",
-                Timestamp.from(oldTime), p1.paymentId().getValue());
+        jdbcTemplate.update("UPDATE payment.payment SET created_at = ?, updated_at = ? WHERE payment_id = ?",
+                Timestamp.from(oldTime), Timestamp.from(oldTime), p1.paymentId().getValue());
 
         PaymentView p2 = paymentService.initiatePayment(new InitiatePaymentCommand(
                 testAccountId,
@@ -153,12 +157,22 @@ class PaymentReconciliationPortIntegrationTest {
                 new Money(new BigDecimal("20.0000"), new Currency("USD"))
         ));
         Instant newTime = baseTime.plus(30, ChronoUnit.MINUTES);
-        jdbcTemplate.update("UPDATE payment.payment SET updated_at = ? WHERE payment_id = ?",
-                Timestamp.from(newTime), p2.paymentId().getValue());
+        jdbcTemplate.update("UPDATE payment.payment SET created_at = ?, updated_at = ? WHERE payment_id = ?",
+                Timestamp.from(newTime), Timestamp.from(newTime), p2.paymentId().getValue());
+
+        PaymentView p3 = paymentService.initiatePayment(new InitiatePaymentCommand(
+                testAccountId,
+                PaymentReference.of("REF-CANC-" + UUID.randomUUID().toString().substring(0, 8)),
+                new BeneficiaryDetails("Charlie", "ACC3", BicCode.of("DEUTDEFFXXX")),
+                new Money(new BigDecimal("30.0000"), new Currency("USD"))
+        ));
+        paymentService.cancelPayment(new CancelPaymentCommand(p3.paymentId(), "Cancelled by customer"));
+        jdbcTemplate.update("UPDATE payment.payment SET created_at = ?, updated_at = ? WHERE payment_id = ?",
+                Timestamp.from(oldTime), Timestamp.from(oldTime), p3.paymentId().getValue());
 
         Instant cutoff = baseTime;
         PaymentReconciliationPage result = paymentReconciliationPort.findPaymentsForReconciliation(
-                Set.of(PaymentStatus.COMPLIANCE_HOLD),
+                Set.of(PaymentStatus.ROUTING),
                 cutoff,
                 null,
                 10
@@ -167,6 +181,7 @@ class PaymentReconciliationPortIntegrationTest {
         List<PaymentId> ids = result.items().stream().map(PaymentReconciliationRecord::paymentId).toList();
         assertThat(ids).contains(p1.paymentId());
         assertThat(ids).doesNotContain(p2.paymentId());
+        assertThat(ids).doesNotContain(p3.paymentId());
     }
 
     @Test
@@ -186,11 +201,11 @@ class PaymentReconciliationPortIntegrationTest {
                 new Money(new BigDecimal("25.0000"), new Currency("USD"))
         ));
 
-        jdbcTemplate.update("UPDATE payment.payment SET updated_at = ? WHERE payment_id IN (?, ?)",
-                Timestamp.from(identicalTime), p1.paymentId().getValue(), p2.paymentId().getValue());
+        jdbcTemplate.update("UPDATE payment.payment SET created_at = ?, updated_at = ? WHERE payment_id IN (?, ?)",
+                Timestamp.from(identicalTime), Timestamp.from(identicalTime), p1.paymentId().getValue(), p2.paymentId().getValue());
 
         PaymentReconciliationPage page1 = paymentReconciliationPort.findPaymentsForReconciliation(
-                Set.of(PaymentStatus.COMPLIANCE_HOLD),
+                Set.of(PaymentStatus.ROUTING),
                 identicalTime.plus(1, ChronoUnit.MINUTES),
                 null,
                 1
@@ -201,7 +216,7 @@ class PaymentReconciliationPortIntegrationTest {
         assertThat(page1.nextCursor()).isPresent();
 
         PaymentReconciliationPage page2 = paymentReconciliationPort.findPaymentsForReconciliation(
-                Set.of(PaymentStatus.COMPLIANCE_HOLD),
+                Set.of(PaymentStatus.ROUTING),
                 identicalTime.plus(1, ChronoUnit.MINUTES),
                 page1.nextCursor().orElseThrow(),
                 1
