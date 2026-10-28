@@ -1,5 +1,6 @@
 package com.crosspaynet.operations.contracts;
 
+import com.crosspaynet.operations.domain.DiscrepancyId;
 import com.crosspaynet.operations.domain.ReconciliationRunId;
 
 import java.util.List;
@@ -27,12 +28,37 @@ public interface ReconciliationService {
     Optional<ReconciliationRunView> findRun(ReconciliationRunId runId);
 
     /**
+     * Lists recent reconciliation runs using deterministic ordering with bounded pagination.
+     *
+     * @param page zero-based page index (must be >= 0)
+     * @param size maximum records per page (between 1 and 100)
+     * @return paginated result of reconciliation run views
+     */
+    PagedResult<ReconciliationRunView> findRuns(int page, int size);
+
+    /**
      * Lists the check executions associated with a reconciliation run.
      *
      * @param runId run identifier
      * @return list of check execution views
      */
     List<ReconciliationCheckExecutionView> findCheckExecutions(ReconciliationRunId runId);
+
+    /**
+     * Finds an operational discrepancy by its unique identifier.
+     *
+     * @param discrepancyId discrepancy identifier
+     * @return optional containing the discrepancy view if found
+     */
+    Optional<ReconciliationDiscrepancyView> findDiscrepancy(DiscrepancyId discrepancyId);
+
+    /**
+     * Queries operational discrepancies with optional filters and bounded pagination.
+     *
+     * @param filter query filters and pagination parameters
+     * @return paginated result of discrepancy views
+     */
+    PagedResult<ReconciliationDiscrepancyView> findDiscrepancies(DiscrepancyQueryFilter filter);
 
     /**
      * Lists the discrepancies detected or updated during a reconciliation run.

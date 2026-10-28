@@ -87,4 +87,14 @@ class OperationsModulithArchitectureTest {
                 .because("Operations must not access internal persistence layer of other modules")
                 .check(OPERATIONS_CLASSES);
     }
+
+    @Test
+    void operationsControllersMustNotDependOnPersistenceLayerDirectly() {
+        noClasses()
+                .that().resideInAPackage("com.crosspaynet.operations.infrastructure.web..")
+                .should().dependOnClassesThat()
+                .resideInAPackage("com.crosspaynet.operations.infrastructure.persistence..")
+                .because("Web controllers must strictly delegate to ReconciliationService and never access persistence repositories or entities directly")
+                .check(OPERATIONS_CLASSES);
+    }
 }

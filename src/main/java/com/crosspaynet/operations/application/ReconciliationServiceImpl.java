@@ -2,11 +2,14 @@ package com.crosspaynet.operations.application;
 
 import com.crosspaynet.operations.application.check.CheckExecutionOutcome;
 import com.crosspaynet.operations.application.check.ReconciliationCheckExecutor;
+import com.crosspaynet.operations.contracts.DiscrepancyQueryFilter;
+import com.crosspaynet.operations.contracts.PagedResult;
 import com.crosspaynet.operations.contracts.ReconciliationCheckExecutionView;
 import com.crosspaynet.operations.contracts.ReconciliationDiscrepancyView;
 import com.crosspaynet.operations.contracts.ReconciliationRunView;
 import com.crosspaynet.operations.contracts.ReconciliationService;
 import com.crosspaynet.operations.contracts.TriggerReconciliationRunCommand;
+import com.crosspaynet.operations.domain.DiscrepancyId;
 import com.crosspaynet.operations.domain.OperationsConflictException;
 import com.crosspaynet.operations.domain.ReconciliationCheckExecution;
 import com.crosspaynet.operations.domain.ReconciliationCheckExecutionId;
@@ -16,9 +19,16 @@ import com.crosspaynet.operations.domain.ReconciliationRunId;
 import com.crosspaynet.operations.domain.ReconciliationRunStatus;
 import com.crosspaynet.operations.infrastructure.persistence.OperationsMapper;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationCheckExecutionRepository;
+import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyEntity;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyRepository;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationRunEntity;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationRunRepository;
+import jakarta.persistence.criteria.Predicate;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,6 +36,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -128,7 +139,7 @@ public class ReconciliationServiceImpl implements ReconciliationService {
 
                 final CheckExecutionOutcome finalOutcome = outcome;
                 transactionTemplate.executeWithoutResult(status -> {
-                    ReconciliationCheckExecution checkExecution = ReconciliationCheckExecution.create(
+                    ReconciliationCheckExecution execution = ReconciliationCheckExecution.create(
                             ReconciliationCheckExecutionId.generate(),
                             runId,
                             finalOutcome.checkName(),
@@ -136,25 +147,22 @@ public class ReconciliationServiceImpl implements ReconciliationService {
                             finalOutcome.itemsScanned(),
                             finalOutcome.discrepanciesFound(),
                             finalOutcome.errorSummary(),
-                            Instant.now()
+                            startedAt
                     );
-                    checkExecutionRepository.saveAndFlush(operationsMapper.toEntity(checkExecution));
+                    checkExecutionRepository.saveAndFlush(operationsMapper.toEntity(execution));
                 });
             }
 
-            // Step 3: Complete run in short transaction
+            // Step 3: Complete run with final status determination
             final int finalChecksEvaluated = checksEvaluated;
             final int finalTotalDiscrepancies = totalDiscrepancies;
             final boolean finalAnyCheckFailed = anyCheckFailed;
+            Instant completedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
             return transactionTemplate.execute(status -> {
                 ReconciliationRunEntity entity = runRepository.findById(runId.getValue())
-                        .orElseThrow(() -> new IllegalStateException("Run not found: " + runId));
+                        .orElseThrow(() -> new IllegalStateException("Run entity not found: " + runId));
                 ReconciliationRun run = operationsMapper.toDomain(entity);
-                Instant completedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
-                if (completedAt.isBefore(run.getStartedAt())) {
-                    completedAt = run.getStartedAt();
-                }
 
                 if (finalAnyCheckFailed) {
                     run.markPartialFailure(
@@ -164,7 +172,11 @@ public class ReconciliationServiceImpl implements ReconciliationService {
                             completedAt
                     );
                 } else {
-                    run.complete(finalChecksEvaluated, finalTotalDiscrepancies, completedAt);
+                    run.complete(
+                            finalChecksEvaluated,
+                            finalTotalDiscrepancies,
+                            completedAt
+                    );
                 }
 
                 operationsMapper.updateEntity(run, entity);
@@ -248,12 +260,87 @@ public class ReconciliationServiceImpl implements ReconciliationService {
 
     @Override
     @Transactional(readOnly = true)
+    public PagedResult<ReconciliationRunView> findRuns(int page, int size) {
+        if (page < 0) {
+            throw new IllegalArgumentException("page must be >= 0");
+        }
+        if (size <= 0 || size > 100) {
+            throw new IllegalArgumentException("size must be between 1 and 100");
+        }
+
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "startedAt", "runId"));
+        Page<ReconciliationRunEntity> entityPage = runRepository.findAll(pageable);
+        List<ReconciliationRunView> content = entityPage.getContent().stream()
+                .map(operationsMapper::toView)
+                .toList();
+
+        return new PagedResult<>(
+                content,
+                entityPage.getNumber(),
+                entityPage.getSize(),
+                entityPage.getTotalElements(),
+                entityPage.getTotalPages()
+        );
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<ReconciliationCheckExecutionView> findCheckExecutions(ReconciliationRunId runId) {
         if (runId == null) return List.of();
         return checkExecutionRepository.findByRunId(runId.getValue())
                 .stream()
                 .map(operationsMapper::toView)
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<ReconciliationDiscrepancyView> findDiscrepancy(DiscrepancyId discrepancyId) {
+        if (discrepancyId == null) {
+            throw new IllegalArgumentException("discrepancyId cannot be null.");
+        }
+        return discrepancyRepository.findById(discrepancyId.getValue())
+                .map(operationsMapper::toView);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PagedResult<ReconciliationDiscrepancyView> findDiscrepancies(DiscrepancyQueryFilter filter) {
+        if (filter == null) {
+            throw new IllegalArgumentException("filter cannot be null.");
+        }
+
+        Pageable pageable = PageRequest.of(filter.page(), filter.size(), Sort.by(Sort.Direction.DESC, "lastObservedAt", "discrepancyId"));
+
+        Specification<ReconciliationDiscrepancyEntity> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (filter.status() != null) {
+                predicates.add(cb.equal(root.get("status"), filter.status().name()));
+            }
+            if (filter.type() != null) {
+                predicates.add(cb.equal(root.get("discrepancyType"), filter.type().name()));
+            }
+            if (filter.runId() != null) {
+                predicates.add(cb.or(
+                        cb.equal(root.get("latestRunId"), filter.runId().getValue()),
+                        cb.equal(root.get("firstRunId"), filter.runId().getValue())
+                ));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+
+        Page<ReconciliationDiscrepancyEntity> entityPage = discrepancyRepository.findAll(spec, pageable);
+        List<ReconciliationDiscrepancyView> content = entityPage.getContent().stream()
+                .map(operationsMapper::toView)
+                .toList();
+
+        return new PagedResult<>(
+                content,
+                entityPage.getNumber(),
+                entityPage.getSize(),
+                entityPage.getTotalElements(),
+                entityPage.getTotalPages()
+        );
     }
 
     @Override

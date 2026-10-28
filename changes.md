@@ -4,6 +4,36 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
+## 2026-10-28 — Phase 9A Checkpoint 4: Operations Reconciliation REST API & RBAC Security — *Implemented Locally (Pending Acceptance Review)*
+
+* **Scope**: Implemented secured REST API endpoints, request/response DTOs, exception handling, and security integration tests for operational reconciliation in the `operations` module:
+  * **Secured REST API Controller (`com.crosspaynet.operations.infrastructure.web.ReconciliationController`)**:
+    * Mounted endpoints under `/api/v1/operations/reconciliation/**`.
+    * Enforced `@PreAuthorize("hasAnyRole('OPERATIONS', 'ADMIN')")` at the class level.
+    * Implemented five secured REST endpoints:
+      1. `POST /runs`: Synchronously triggers a new reconciliation run across all four check executors. Derives operator identity strictly from authenticated Spring Security principal (`authentication.getName()`). Returns `201 Created` with `Location: /api/v1/operations/reconciliation/runs/{runId}`.
+      2. `GET /runs`: Lists historical reconciliation runs with deterministic ordering (`startedAt DESC, runId DESC`) and bounded pagination (`page >= 0`, `1 <= size <= 100`).
+      3. `GET /runs/{runId}`: Retrieves detailed outcomes for a single reconciliation run, including its individual check executions. Returns `404 Not Found` if missing.
+      4. `GET /discrepancies`: Lists operational discrepancies with deterministic ordering (`lastObservedAt DESC, discrepancyId DESC`), bounded pagination, and optional filters (`status`, `type`, `runId`).
+      5. `GET /discrepancies/{discrepancyId}`: Retrieves details of an individual discrepancy. Returns `404 Not Found` if missing.
+  * **Public Contracts & Domain Query Extensions (`com.crosspaynet.operations.contracts`)**:
+    * Added `PagedResult<T>` generic pagination container.
+    * Added `DiscrepancyQueryFilter` parameter object with strict validation.
+    * Extended `ReconciliationService` and `ReconciliationServiceImpl` with `findRuns(int page, int size)`, `findDiscrepancy(DiscrepancyId)`, and `findDiscrepancies(DiscrepancyQueryFilter)` (using Spring Data `JpaSpecificationExecutor` and dynamic predicates).
+  * **Web DTOs & Error Sanitization (`com.crosspaynet.operations.infrastructure.web`)**:
+    * Introduced public DTOs: `ReconciliationRunResponse`, `ReconciliationCheckExecutionResponse`, `ReconciliationRunDetailResponse`, `ReconciliationDiscrepancyResponse`, and `PagedResponse<T>`.
+    * Implemented `OperationsExceptionHandler` (`@RestControllerAdvice`) mapping `OperationsConflictException` -> `409 Conflict`, `OperationsNotFoundException` -> `404 Not Found`, `IllegalArgumentException` / `MethodArgumentTypeMismatchException` -> `400 Bad Request`, `AccessDeniedException` -> `403 Forbidden`, and unexpected exceptions -> sanitized `500 Internal Server Error` with `ApiErrorResponse`.
+  * **Module Boundary & Architectural Enforcement (`OperationsModulithArchitectureTest`)**:
+    * Added ArchUnit rule `operationsControllersMustNotDependOnPersistenceLayerDirectly()` ensuring controllers never access JPA repositories or persistence entities directly, strictly delegating through `ReconciliationService`.
+  * **Tests & Verification**:
+    * Added `ReconciliationControllerSecurityTest` (13 tests) verifying RBAC access control (401 unauthenticated, 403 non-operations, 201/200 for OPERATIONS/ADMIN), principal derivation, 400 validation, 404 missing resources, and 409 active run conflict.
+    * Added `ReconciliationControllerIntegrationTest` (5 tests) verifying end-to-end HTTP execution and PostgreSQL Testcontainers persistence, deterministic ordering, active run contention locking, and multi-parameter discrepancy filtering.
+    * Full suite verified: 71 Operations tests passed (unit, architecture, security, persistence, and REST integration) and 210 full-project tests passed with zero failures.
+
+Chronological record of verified engineering checkpoints and corrective updates in the CrossPayNet Evolutionary Modular Monolith.
+
+---
+
 ## 2026-10-28 — Phase 9A Checkpoint 3 Corrective Fixes: Ledger Query Contract Isolation & Module Boundary Tightening — *Implemented Locally (Pending Acceptance Review)*
 
 * **Scope**: Resolved module boundary violations in the `operations` module by isolating read-only Ledger access and pruning overly broad dependency declarations:

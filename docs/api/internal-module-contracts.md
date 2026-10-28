@@ -282,3 +282,50 @@ Asynchronous contracts (Spring Application Events in the monolith) are used when
 * **Payload Concepts**:
   * `PaymentId`
 * **Behavior**: Asynchronous. Triggers the Payment state machine to move to `SETTLED`.
+
+---
+
+## 3. Operations & Reconciliation REST API (Phase 9A Checkpoint 4)
+
+Secure operational reconciliation and discrepancy management endpoints exposed under `/api/v1/operations/reconciliation/**`. All endpoints enforce Role-Based Access Control (RBAC) via Spring Security method security, requiring `ROLE_OPERATIONS` or `ROLE_ADMIN`. Operator identity is derived strictly from the authenticated security principal (`authentication.getName()`).
+
+### `POST /api/v1/operations/reconciliation/runs`
+* **Purpose**: Synchronously execute an operational reconciliation run across all four registered check executors (`StalePaymentWorkflowCheck`, `PaymentReservationMismatchCheck`, `SettlementLedgerInconsistencyCheck`, and `IncompleteEventPublicationCheck`).
+* **Security**: `hasAnyRole('OPERATIONS', 'ADMIN')`, requires valid CSRF token.
+* **Operator Derivation**: Extracted from authenticated Spring Security principal.
+* **Responses**:
+  * `201 Created`: Returns `ReconciliationRunDetailResponse` with `Location: /api/v1/operations/reconciliation/runs/{runId}`.
+  * `409 Conflict`: Returned when an active reconciliation run is currently in progress.
+  * `401 Unauthorized` / `403 Forbidden`: Unauthenticated or unauthorized callers.
+
+### `GET /api/v1/operations/reconciliation/runs`
+* **Purpose**: Retrieve historical reconciliation runs with deterministic ordering (`startedAt DESC, runId DESC`) and bounded pagination.
+* **Parameters**: `page` (default: 0, must be >= 0), `size` (default: 20, between 1 and 100).
+* **Responses**:
+  * `200 OK`: `PagedResponse<ReconciliationRunResponse>`.
+  * `400 Bad Request`: Out-of-bounds pagination parameters.
+
+### `GET /api/v1/operations/reconciliation/runs/{runId}`
+* **Purpose**: Inspect a single reconciliation run and its individual check outcomes.
+* **Responses**:
+  * `200 OK`: `ReconciliationRunDetailResponse` containing run status, timing, counts, and check execution items.
+  * `404 Not Found`: Non-existent run ID.
+  * `400 Bad Request`: Malformed run UUID.
+
+### `GET /api/v1/operations/reconciliation/discrepancies`
+* **Purpose**: Query operational discrepancies with deterministic ordering (`lastObservedAt DESC, discrepancyId DESC`), bounded pagination, and optional filters.
+* **Parameters**:
+  * `status`: Optional lifecycle filter (`OPEN`, `RESOLVED_EXTERNALLY`, `ACKNOWLEDGED`).
+  * `type`: Optional discrepancy category (`STALE_IN_FLIGHT_WORKFLOW`, `RESERVATION_PAYMENT_MISMATCH`, `PAYMENT_LEDGER_BREAK`, `INCOMPLETE_EVENT_PUBLICATION`).
+  * `runId`: Optional run filter (matches first or latest run).
+  * `page` (default: 0), `size` (default: 20).
+* **Responses**:
+  * `200 OK`: `PagedResponse<ReconciliationDiscrepancyResponse>`.
+  * `400 Bad Request`: Invalid status/type enum or invalid pagination.
+
+### `GET /api/v1/operations/reconciliation/discrepancies/{discrepancyId}`
+* **Purpose**: Retrieve details of an individual discrepancy finding.
+* **Responses**:
+  * `200 OK`: `ReconciliationDiscrepancyResponse`.
+  * `404 Not Found`: Discrepancy not found.
+  * `400 Bad Request`: Malformed discrepancy UUID.
