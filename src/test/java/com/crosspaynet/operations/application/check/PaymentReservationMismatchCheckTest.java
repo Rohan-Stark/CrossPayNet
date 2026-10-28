@@ -1,6 +1,6 @@
 package com.crosspaynet.operations.application.check;
 
-import com.crosspaynet.banking.BankingService;
+import com.crosspaynet.banking.contracts.BankingReservationQueryPort;
 import com.crosspaynet.banking.contracts.AccountId;
 import com.crosspaynet.banking.contracts.PaymentReference;
 import com.crosspaynet.banking.contracts.ReservationStatus;
@@ -43,7 +43,7 @@ class PaymentReservationMismatchCheckTest {
     private PaymentReconciliationPort paymentReconciliationPort;
 
     @Mock
-    private BankingService bankingService;
+    private BankingReservationQueryPort bankingReservationQueryPort;
 
     @Mock
     private DiscrepancyRecorder discrepancyRecorder;
@@ -59,7 +59,7 @@ class PaymentReservationMismatchCheckTest {
 
         check = new PaymentReservationMismatchCheck(
                 paymentReconciliationPort,
-                bankingService,
+                bankingReservationQueryPort,
                 discrepancyRecorder,
                 properties
         );
@@ -99,7 +99,7 @@ class PaymentReservationMismatchCheckTest {
                 amount,
                 PaymentReference.of("REF-1")
         );
-        when(bankingService.findReservation(token)).thenReturn(Optional.of(reservation));
+        when(bankingReservationQueryPort.findReservation(token)).thenReturn(Optional.of(reservation));
 
         CheckExecutionOutcome outcome = check.execute(runId, now);
 
@@ -150,7 +150,7 @@ class PaymentReservationMismatchCheckTest {
                 amount,
                 PaymentReference.of("REF-1")
         );
-        when(bankingService.findReservation(token)).thenReturn(Optional.of(reservation));
+        when(bankingReservationQueryPort.findReservation(token)).thenReturn(Optional.of(reservation));
 
         CheckExecutionOutcome outcome = check.execute(runId, now);
 
@@ -193,7 +193,7 @@ class PaymentReservationMismatchCheckTest {
                 amount,
                 PaymentReference.of("REF-1")
         );
-        when(bankingService.findReservation(token)).thenReturn(Optional.of(reservation));
+        when(bankingReservationQueryPort.findReservation(token)).thenReturn(Optional.of(reservation));
 
         CheckExecutionOutcome outcome = check.execute(runId, now);
 

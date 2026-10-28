@@ -1,6 +1,6 @@
 package com.crosspaynet.operations.application.check;
 
-import com.crosspaynet.banking.BankingService;
+import com.crosspaynet.banking.contracts.BankingReservationQueryPort;
 import com.crosspaynet.banking.contracts.ReservationStatus;
 import com.crosspaynet.banking.contracts.ReservationToken;
 import com.crosspaynet.banking.contracts.ReservationView;
@@ -40,18 +40,18 @@ public class PaymentReservationMismatchCheck implements ReconciliationCheckExecu
     );
 
     private final PaymentReconciliationPort paymentReconciliationPort;
-    private final BankingService bankingService;
+    private final BankingReservationQueryPort bankingReservationQueryPort;
     private final DiscrepancyRecorder discrepancyRecorder;
     private final OperationsReconciliationProperties properties;
 
     public PaymentReservationMismatchCheck(
             PaymentReconciliationPort paymentReconciliationPort,
-            BankingService bankingService,
+            BankingReservationQueryPort bankingReservationQueryPort,
             DiscrepancyRecorder discrepancyRecorder,
             OperationsReconciliationProperties properties
     ) {
         this.paymentReconciliationPort = Objects.requireNonNull(paymentReconciliationPort, "paymentReconciliationPort cannot be null.");
-        this.bankingService = Objects.requireNonNull(bankingService, "bankingService cannot be null.");
+        this.bankingReservationQueryPort = Objects.requireNonNull(bankingReservationQueryPort, "bankingReservationQueryPort cannot be null.");
         this.discrepancyRecorder = Objects.requireNonNull(discrepancyRecorder, "discrepancyRecorder cannot be null.");
         this.properties = Objects.requireNonNull(properties, "properties cannot be null.");
     }
@@ -114,7 +114,7 @@ public class PaymentReservationMismatchCheck implements ReconciliationCheckExecu
         }
 
         ReservationToken token = tokenOpt.get();
-        Optional<ReservationView> reservationOpt = bankingService.findReservation(token);
+        Optional<ReservationView> reservationOpt = bankingReservationQueryPort.findReservation(token);
 
         if (reservationOpt.isEmpty()) {
             String summary = "Terminal payment " + payment.status() + " references non-existent reservation " + token.getValue();

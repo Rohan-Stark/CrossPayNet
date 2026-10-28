@@ -29,6 +29,8 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -48,6 +50,7 @@ public class ReconciliationServiceImpl implements ReconciliationService {
     private final List<ReconciliationCheckExecutor> checkExecutors;
     private final TransactionTemplate transactionTemplate;
     private final ReentrantLock runLock = new ReentrantLock();
+    private final AtomicReference<UUID> activeRunId = new AtomicReference<>();
 
     public ReconciliationServiceImpl(
             ReconciliationRunRepository runRepository,
@@ -74,6 +77,9 @@ public class ReconciliationServiceImpl implements ReconciliationService {
         }
 
         try {
+            // Recover any abandoned runs left over from prior process termination
+            recoverAbandonedRuns();
+
             if (runRepository.existsByStatus(ReconciliationRunStatus.IN_PROGRESS.name())) {
                 throw new OperationsConflictException("A reconciliation run is already in progress.");
             }
@@ -87,18 +93,19 @@ public class ReconciliationServiceImpl implements ReconciliationService {
     private ReconciliationRunView executeReconciliationRun(TriggerReconciliationRunCommand command) {
         ReconciliationRunId runId = ReconciliationRunId.generate();
         Instant startedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
-
-        // Step 1: Start and persist IN_PROGRESS run in short transaction
-        transactionTemplate.executeWithoutResult(status -> {
-            ReconciliationRun run = ReconciliationRun.start(runId, command.triggeredBy(), startedAt);
-            runRepository.saveAndFlush(operationsMapper.toEntity(run));
-        });
-
-        int checksEvaluated = 0;
-        int totalDiscrepancies = 0;
-        boolean anyCheckFailed = false;
+        activeRunId.set(runId.getValue());
 
         try {
+            // Step 1: Start and persist IN_PROGRESS run in short transaction
+            transactionTemplate.executeWithoutResult(status -> {
+                ReconciliationRun run = ReconciliationRun.start(runId, command.triggeredBy(), startedAt);
+                runRepository.saveAndFlush(operationsMapper.toEntity(run));
+            });
+
+            int checksEvaluated = 0;
+            int totalDiscrepancies = 0;
+            boolean anyCheckFailed = false;
+
             // Step 2: Execute each check executor and persist check outcomes
             for (ReconciliationCheckExecutor executor : checkExecutors) {
                 CheckExecutionOutcome outcome;
@@ -180,6 +187,54 @@ public class ReconciliationServiceImpl implements ReconciliationService {
                 // preserve fatalEx
             }
             throw fatalEx;
+        } finally {
+            activeRunId.set(null);
+        }
+    }
+
+    @Override
+    public int recoverAbandonedRuns() {
+        List<ReconciliationRunEntity> inProgressRuns = runRepository.findByStatus(ReconciliationRunStatus.IN_PROGRESS.name());
+        if (inProgressRuns.isEmpty()) {
+            return 0;
+        }
+
+        UUID currentlyActive = activeRunId.get();
+        int recoveredCount = 0;
+
+        for (ReconciliationRunEntity entity : inProgressRuns) {
+            // Never mark an actively executing run as failed
+            if (currentlyActive != null && entity.getRunId().equals(currentlyActive)) {
+                continue;
+            }
+
+            boolean recovered = recoverRun(entity.getRunId());
+            if (recovered) {
+                recoveredCount++;
+            }
+        }
+        return recoveredCount;
+    }
+
+    private boolean recoverRun(UUID runId) {
+        try {
+            return Boolean.TRUE.equals(transactionTemplate.execute(status -> {
+                return runRepository.findById(runId).map(entity -> {
+                    if (!ReconciliationRunStatus.IN_PROGRESS.name().equals(entity.getStatus())) {
+                        return false;
+                    }
+                    ReconciliationRun run = operationsMapper.toDomain(entity);
+                    run.fail(
+                            "Abandoned run recovered: execution interrupted by process termination or restart",
+                            Instant.now().truncatedTo(ChronoUnit.MICROS)
+                    );
+                    operationsMapper.updateEntity(run, entity);
+                    runRepository.saveAndFlush(entity);
+                    return true;
+                }).orElse(false);
+            }));
+        } catch (org.springframework.dao.OptimisticLockingFailureException ex) {
+            return false;
         }
     }
 

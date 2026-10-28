@@ -26,12 +26,15 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -77,13 +80,13 @@ class ReconciliationServiceTest {
 
     @Test
     void shouldCompleteRunSuccessfullyWhenAllChecksSucceed() {
+        when(runRepository.findByStatus(ReconciliationRunStatus.IN_PROGRESS.name())).thenReturn(List.of());
         when(runRepository.existsByStatus(ReconciliationRunStatus.IN_PROGRESS.name())).thenReturn(false);
 
         when(check1.execute(any(), any())).thenReturn(CheckExecutionOutcome.success("CHECK_1", 10, 1));
         when(check2.execute(any(), any())).thenReturn(CheckExecutionOutcome.success("CHECK_2", 20, 2));
 
         Instant past = Instant.now().minusSeconds(10);
-        // Mock repository findById for the completion step
         when(runRepository.findById(any())).thenAnswer(invocation -> {
             UUID id = invocation.getArgument(0);
             return Optional.of(new ReconciliationRunEntity(
@@ -104,6 +107,7 @@ class ReconciliationServiceTest {
 
     @Test
     void shouldMarkRunAsPartialFailureWhenOneCheckFails() {
+        when(runRepository.findByStatus(ReconciliationRunStatus.IN_PROGRESS.name())).thenReturn(List.of());
         when(runRepository.existsByStatus(ReconciliationRunStatus.IN_PROGRESS.name())).thenReturn(false);
 
         when(check1.execute(any(), any())).thenReturn(CheckExecutionOutcome.success("CHECK_1", 10, 0));
@@ -128,11 +132,69 @@ class ReconciliationServiceTest {
     }
 
     @Test
-    void shouldPreventOverlappingActiveRunWhenAnotherRunIsInProgress() {
-        when(runRepository.existsByStatus(ReconciliationRunStatus.IN_PROGRESS.name())).thenReturn(true);
+    void shouldRecoverAbandonedRunAndTransitionItToFailed() {
+        UUID abandonedRunId = UUID.randomUUID();
+        Instant past = Instant.now().minusSeconds(3600);
+        ReconciliationRunEntity abandonedEntity = new ReconciliationRunEntity(
+                abandonedRunId, 0L, "IN_PROGRESS", past, null, 1, 0, "PREVIOUS_CRASHED_INSTANCE", null, past, past
+        );
 
-        assertThatThrownBy(() -> reconciliationService.triggerRun(new TriggerReconciliationRunCommand("CONCURRENT_OPERATOR")))
+        when(runRepository.findByStatus(ReconciliationRunStatus.IN_PROGRESS.name()))
+                .thenReturn(List.of(abandonedEntity));
+        when(runRepository.findById(abandonedRunId)).thenReturn(Optional.of(abandonedEntity));
+
+        int recovered = reconciliationService.recoverAbandonedRuns();
+
+        assertThat(recovered).isEqualTo(1);
+        ArgumentCaptor<ReconciliationRunEntity> captor = ArgumentCaptor.forClass(ReconciliationRunEntity.class);
+        verify(runRepository).saveAndFlush(captor.capture());
+
+        ReconciliationRunEntity saved = captor.getValue();
+        assertThat(saved.getStatus()).isEqualTo(ReconciliationRunStatus.FAILED.name());
+        assertThat(saved.getFailureReason()).contains("Abandoned run recovered");
+        assertThat(saved.getCompletedAt()).isNotNull();
+        assertThat(saved.getChecksEvaluated()).isEqualTo(1); // Historical checks preserved
+    }
+
+    @Test
+    void shouldRejectConcurrentRunWhenRunLockIsHeld() throws Exception {
+        when(runRepository.findByStatus(ReconciliationRunStatus.IN_PROGRESS.name())).thenReturn(List.of());
+        when(runRepository.existsByStatus(ReconciliationRunStatus.IN_PROGRESS.name())).thenReturn(false);
+
+        CountDownLatch checkStarted = new CountDownLatch(1);
+        CountDownLatch checkHold = new CountDownLatch(1);
+
+        when(check1.execute(any(), any())).thenAnswer(inv -> {
+            checkStarted.countDown();
+            checkHold.await();
+            return CheckExecutionOutcome.success("CHECK_1", 1, 0);
+        });
+        when(check2.execute(any(), any())).thenReturn(CheckExecutionOutcome.success("CHECK_2", 1, 0));
+
+        Instant past = Instant.now().minusSeconds(10);
+        when(runRepository.findById(any())).thenAnswer(invocation -> {
+            UUID id = invocation.getArgument(0);
+            return Optional.of(new ReconciliationRunEntity(
+                    id, 0L, "IN_PROGRESS", past, null, 0, 0, "OPERATOR_1", null, past, past
+            ));
+        });
+
+        // Start first run in background
+        AtomicBoolean concurrentFailedAsExpected = new AtomicBoolean(false);
+        Thread background = new Thread(() -> {
+            reconciliationService.triggerRun(new TriggerReconciliationRunCommand("OPERATOR_1"));
+        });
+        background.start();
+
+        checkStarted.await();
+
+        // While first run is executing, concurrent trigger should fail
+        assertThatThrownBy(() -> reconciliationService.triggerRun(new TriggerReconciliationRunCommand("OPERATOR_2")))
                 .isInstanceOf(OperationsConflictException.class)
-                .hasMessageContaining("already in progress");
+                .hasMessageContaining("currently executing");
+
+        // Release check
+        checkHold.countDown();
+        background.join();
     }
 }

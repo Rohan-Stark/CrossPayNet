@@ -48,4 +48,17 @@ public interface ReconciliationService {
      * @return optional containing the latest run view
      */
     Optional<ReconciliationRunView> findLatestRun();
+
+    /**
+     * Detects and recovers abandoned reconciliation runs left in an incomplete state
+     * due to abnormal process termination or restarts.
+     *
+     * <p>Any {@code IN_PROGRESS} run that is not actively executing within the current
+     * application instance is transitioned to {@code FAILED} with an audit failure reason,
+     * preserving its existing check executions for investigation. Actively executing runs
+     * are never modified.
+     *
+     * @return the number of abandoned runs recovered
+     */
+    int recoverAbandonedRuns();
 }

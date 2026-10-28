@@ -4,6 +4,32 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
+## 2026-10-28 — Phase 9A Checkpoint 3 Corrective Fixes: Banking Contract & Abandoned Run Recovery — *Implemented Locally (Pending Acceptance Review)*
+
+* **Scope**: Addressed the two acceptance review findings for Checkpoint 3:
+  * **Narrow Read-Only Banking Port (`com.crosspaynet.banking.contracts`)**:
+    * Introduced `BankingReservationQueryPort` in `com.crosspaynet.banking.contracts` with method `Optional<ReservationView> findReservation(ReservationToken reservationToken)`.
+    * Updated `BankingService` to implement `BankingReservationQueryPort`.
+    * Refactored `PaymentReservationMismatchCheck` to inject `BankingReservationQueryPort` instead of `BankingService`.
+    * Removed `"banking"` root package from `operations/package-info.java`, strictly scoping the dependency to `"banking :: contracts"`.
+    * Added ArchUnit test `operationsMustNotDependOnBankingRootPackage` ensuring `operations` has zero compile-time references to internal or mutative Banking APIs.
+  * **Abandoned Reconciliation-Run Recovery Policy (`com.crosspaynet.operations.application`)**:
+    * Added `recoverAbandonedRuns()` to `ReconciliationService` and `ReconciliationServiceImpl`.
+    * Introduced `ReconciliationStartupRecoveryListener` (`ApplicationReadyEvent`) recovering orphaned `IN_PROGRESS` runs upon application startup.
+    * Integrated abandoned run recovery into `triggerRun` before checking active status, preventing permanent lockouts caused by ungraceful process crashes.
+    * Protected actively executing runs using `activeRunId` (`AtomicReference<UUID>`), ensuring active runs are never marked `FAILED`.
+    * Terminal Failure Outcome: Transitions genuinely abandoned runs to `FAILED` with explicit audit failure reason `"Abandoned run recovered: execution interrupted by process termination or restart"`, preserving historical check counts and never marking them `COMPLETED`.
+  * **Tests & Verification**:
+    * Unit tests for recovery (`ReconciliationServiceTest` and `ReconciliationStartupRecoveryListenerTest`).
+    * Full PostgreSQL Testcontainers integration tests in `ReconciliationEngineIntegrationTest` covering all 5 regression requirements:
+      1. Persisted abandoned run recovered and subsequent run executes successfully.
+      2. Currently active run is not incorrectly marked `FAILED`.
+      3. Concurrent triggers cannot create overlapping runs or inconsistently recover one another.
+      4. Recovery records a terminal failure outcome (`FAILED`), preserving check history and audit failure reason without reporting false success.
+      5. Existing check execution and discrepancy deduplication remain fully functional.
+
+---
+
 ## 2026-10-28 — Phase 9A Checkpoint 3: Reconciliation Engine & Check Executors — *Implemented Locally (Pending Acceptance Review)*
 
 * **Scope**: Implemented the core operational reconciliation engine, four read-only check executors, discrepancy deduplication with repeat detection tracking, and run orchestration in the `operations` module (`com.crosspaynet.operations`):

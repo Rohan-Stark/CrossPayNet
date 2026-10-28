@@ -3,7 +3,6 @@
                 "common",
                 "common :: money",
                 "payment :: contracts",
-                "banking",
                 "banking :: contracts",
                 "ledger",
                 "events",

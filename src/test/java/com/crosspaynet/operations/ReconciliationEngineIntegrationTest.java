@@ -1,7 +1,7 @@
 package com.crosspaynet.operations;
 
 import com.crosspaynet.PostgresTestContainerConfig;
-import com.crosspaynet.banking.BankingService;
+import com.crosspaynet.banking.contracts.BankingReservationQueryPort;
 import com.crosspaynet.banking.contracts.AccountId;
 import com.crosspaynet.banking.contracts.PaymentReference;
 import com.crosspaynet.banking.contracts.ReservationStatus;
@@ -42,6 +42,7 @@ import com.crosspaynet.operations.infrastructure.persistence.OperationsMapper;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationCheckExecutionRepository;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyEntity;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyRepository;
+import com.crosspaynet.operations.infrastructure.persistence.ReconciliationRunEntity;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationRunRepository;
 import com.crosspaynet.payment.contracts.BicCode;
 import com.crosspaynet.payment.contracts.PaymentId;
@@ -67,6 +68,8 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -111,7 +114,7 @@ class ReconciliationEngineIntegrationTest {
     private PaymentReconciliationPort paymentReconciliationPort;
 
     @MockitoBean
-    private BankingService bankingService;
+    private BankingReservationQueryPort bankingReservationQueryPort;
 
     @MockitoBean
     private LedgerService ledgerService;
@@ -190,7 +193,7 @@ class ReconciliationEngineIntegrationTest {
                 resToken, AccountId.generate(), ReservationStatus.ACTIVE,
                 new Money(new BigDecimal("50.00"), new Currency("USD")), PaymentReference.of("REF-MISMATCH")
         );
-        when(bankingService.findReservation(resToken)).thenReturn(Optional.of(resView));
+        when(bankingReservationQueryPort.findReservation(resToken)).thenReturn(Optional.of(resView));
 
         // 3. Settlement ledger inconsistency fixture (Check C)
         PaymentId ledgerBreakPaymentId = PaymentId.generate();
@@ -300,17 +303,144 @@ class ReconciliationEngineIntegrationTest {
     }
 
     @Test
-    void shouldPreventOverlappingActiveRuns() {
-        // Given an active run in the database
-        ReconciliationRun activeRun = com.crosspaynet.operations.domain.ReconciliationRun.start(
-                ReconciliationRunId.generate(),
-                "OTHER_OP",
-                Instant.now()
+    void shouldRecoverPersistedAbandonedRunAndAllowSubsequentRunToExecute() {
+        // Simulate a prior crashed application instance that left an IN_PROGRESS run in PostgreSQL
+        UUID abandonedRunId = UUID.randomUUID();
+        Instant past = Instant.now().minusSeconds(1800).truncatedTo(ChronoUnit.MICROS);
+        ReconciliationRunEntity abandonedEntity = new ReconciliationRunEntity(
+                abandonedRunId, null, ReconciliationRunStatus.IN_PROGRESS.name(),
+                past, null, 1, 0, "CRASHED_INSTANCE_OPERATOR", null, past, past
         );
-        runRepository.saveAndFlush(operationsMapper.toEntity(activeRun));
+        runRepository.saveAndFlush(abandonedEntity);
 
-        assertThatThrownBy(() -> reconciliationService.triggerRun(new TriggerReconciliationRunCommand("OPERATOR_CHARLIE")))
+        // Verify the abandoned run is in database as IN_PROGRESS
+        ReconciliationRunEntity beforeTrigger = runRepository.findById(abandonedRunId).orElseThrow();
+        assertThat(beforeTrigger.getStatus()).isEqualTo(ReconciliationRunStatus.IN_PROGRESS.name());
+
+        // Setup clean mocks for the subsequent run
+        when(paymentReconciliationPort.findPaymentsForReconciliation(any(), any(), any(), anyInt()))
+                .thenReturn(PaymentReconciliationPage.empty());
+        when(eventPublicationQueryPort.findIncompletePublications(any(), any(), anyInt()))
+                .thenReturn(com.crosspaynet.events.contracts.EventPublicationPage.empty());
+
+        // Trigger new run: should recover abandoned run first, then execute and complete new run
+        ReconciliationRunView newRun = reconciliationService.triggerRun(new TriggerReconciliationRunCommand("NEW_OPERATOR"));
+
+        assertThat(newRun.status()).isEqualTo(ReconciliationRunStatus.COMPLETED);
+        assertThat(newRun.runId().getValue()).isNotEqualTo(abandonedRunId);
+
+        // Verify the abandoned run was recovered as FAILED with audit reason
+        ReconciliationRunEntity afterTrigger = runRepository.findById(abandonedRunId).orElseThrow();
+        assertThat(afterTrigger.getStatus()).isEqualTo(ReconciliationRunStatus.FAILED.name());
+        assertThat(afterTrigger.getFailureReason()).contains("Abandoned run recovered");
+        assertThat(afterTrigger.getCompletedAt()).isNotNull();
+        assertThat(afterTrigger.getChecksEvaluated()).isEqualTo(1); // Historical check count preserved
+    }
+
+    @Test
+    void shouldNotMarkActivelyExecutingRunAsFailedDuringRecovery() throws Exception {
+        CountDownLatch checkStarted = new CountDownLatch(1);
+        CountDownLatch checkHold = new CountDownLatch(1);
+
+        when(paymentReconciliationPort.findPaymentsForReconciliation(
+                argThat(statuses -> statuses != null && statuses.contains(PaymentStatus.PENDING_EXTERNAL)),
+                any(), any(), anyInt()
+        )).thenAnswer(inv -> {
+            checkStarted.countDown();
+            checkHold.await();
+            return PaymentReconciliationPage.empty();
+        });
+
+        when(paymentReconciliationPort.findPaymentsForReconciliation(
+                argThat(statuses -> statuses != null && !statuses.contains(PaymentStatus.PENDING_EXTERNAL)),
+                any(), any(), anyInt()
+        )).thenReturn(PaymentReconciliationPage.empty());
+
+        when(eventPublicationQueryPort.findIncompletePublications(any(), any(), anyInt()))
+                .thenReturn(com.crosspaynet.events.contracts.EventPublicationPage.empty());
+
+        // Start active run on background thread
+        Thread activeThread = new Thread(() -> {
+            reconciliationService.triggerRun(new TriggerReconciliationRunCommand("ACTIVE_OPERATOR"));
+        });
+        activeThread.start();
+
+        checkStarted.await();
+
+        // While active run is executing in this instance, attempt recovery
+        int recovered = reconciliationService.recoverAbandonedRuns();
+        assertThat(recovered).isEqualTo(0);
+
+        // Verify active run in PostgreSQL is still IN_PROGRESS and not marked FAILED
+        List<ReconciliationRunEntity> inProgress = runRepository.findByStatus(ReconciliationRunStatus.IN_PROGRESS.name());
+        assertThat(inProgress).hasSize(1);
+        assertThat(inProgress.get(0).getStatus()).isEqualTo(ReconciliationRunStatus.IN_PROGRESS.name());
+
+        // Release check to complete
+        checkHold.countDown();
+        activeThread.join();
+
+        // Verify run finished COMPLETED
+        ReconciliationRunEntity completed = runRepository.findById(inProgress.get(0).getRunId()).orElseThrow();
+        assertThat(completed.getStatus()).isEqualTo(ReconciliationRunStatus.COMPLETED.name());
+    }
+
+    @Test
+    void shouldRejectConcurrentTriggersWhileRunIsExecuting() throws Exception {
+        CountDownLatch checkStarted = new CountDownLatch(1);
+        CountDownLatch checkHold = new CountDownLatch(1);
+
+        when(paymentReconciliationPort.findPaymentsForReconciliation(
+                argThat(statuses -> statuses != null && statuses.contains(PaymentStatus.PENDING_EXTERNAL)),
+                any(), any(), anyInt()
+        )).thenAnswer(inv -> {
+            checkStarted.countDown();
+            checkHold.await();
+            return PaymentReconciliationPage.empty();
+        });
+
+        when(paymentReconciliationPort.findPaymentsForReconciliation(
+                argThat(statuses -> statuses != null && !statuses.contains(PaymentStatus.PENDING_EXTERNAL)),
+                any(), any(), anyInt()
+        )).thenReturn(PaymentReconciliationPage.empty());
+
+        when(eventPublicationQueryPort.findIncompletePublications(any(), any(), anyInt()))
+                .thenReturn(com.crosspaynet.events.contracts.EventPublicationPage.empty());
+
+        Thread activeThread = new Thread(() -> {
+            reconciliationService.triggerRun(new TriggerReconciliationRunCommand("RUNNER_1"));
+        });
+        activeThread.start();
+
+        checkStarted.await();
+
+        // Concurrent trigger while runner 1 is executing should be rejected
+        assertThatThrownBy(() -> reconciliationService.triggerRun(new TriggerReconciliationRunCommand("RUNNER_2")))
                 .isInstanceOf(OperationsConflictException.class)
-                .hasMessageContaining("already in progress");
+                .hasMessageContaining("currently executing");
+
+        checkHold.countDown();
+        activeThread.join();
+    }
+
+    @Test
+    void shouldRecordTerminalFailureOutcomeOnRecoveryWithoutReportingSuccess() {
+        UUID abandonedRunId = UUID.randomUUID();
+        Instant past = Instant.now().minusSeconds(3600).truncatedTo(ChronoUnit.MICROS);
+        ReconciliationRunEntity abandonedEntity = new ReconciliationRunEntity(
+                abandonedRunId, null, ReconciliationRunStatus.IN_PROGRESS.name(),
+                past, null, 2, 1, "ABANDONED_OP", null, past, past
+        );
+        runRepository.saveAndFlush(abandonedEntity);
+
+        int recovered = reconciliationService.recoverAbandonedRuns();
+        assertThat(recovered).isEqualTo(1);
+
+        ReconciliationRunEntity recoveredEntity = runRepository.findById(abandonedRunId).orElseThrow();
+        assertThat(recoveredEntity.getStatus()).isEqualTo(ReconciliationRunStatus.FAILED.name());
+        assertThat(recoveredEntity.getFailureReason()).isEqualTo("Abandoned run recovered: execution interrupted by process termination or restart");
+        assertThat(recoveredEntity.getCompletedAt()).isNotNull();
+        assertThat(recoveredEntity.getChecksEvaluated()).isEqualTo(2); // Retains 2 checks
+        assertThat(recoveredEntity.getDiscrepancyCount()).isEqualTo(1); // Retains 1 discrepancy
     }
 }

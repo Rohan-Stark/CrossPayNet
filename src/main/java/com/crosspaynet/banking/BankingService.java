@@ -27,7 +27,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Service
-public class BankingService {
+public class BankingService implements com.crosspaynet.banking.contracts.BankingReservationQueryPort {
 
     private final AccountRepository accountRepository;
     private final ApplicationEventPublisher eventPublisher;

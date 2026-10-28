@@ -41,6 +41,16 @@ class OperationsModulithArchitectureTest {
     }
 
     @Test
+    void operationsMustNotDependOnBankingRootPackage() {
+        noClasses()
+                .that().resideInAPackage("com.crosspaynet.operations..")
+                .should().dependOnClassesThat()
+                .resideInAPackage("com.crosspaynet.banking")
+                .because("Operations must depend only on named interface 'banking :: contracts' (e.g. BankingReservationQueryPort) and never on BankingService or internal banking root package")
+                .check(OPERATIONS_CLASSES);
+    }
+
+    @Test
     void operationsMustNotDirectlyAccessOtherModulesInternalPersistence() {
         noClasses()
                 .that().resideInAPackage("com.crosspaynet.operations..")

@@ -1,6 +1,7 @@
 package com.crosspaynet.banking;
 
 import com.crosspaynet.banking.contracts.AccountId;
+import com.crosspaynet.banking.contracts.BankingReservationQueryPort;
 import com.crosspaynet.banking.contracts.PaymentReference;
 import com.crosspaynet.banking.contracts.ReservationStatus;
 import com.crosspaynet.banking.contracts.ReservationToken;
@@ -47,8 +48,10 @@ class BankingReservationQueryUnitTest {
 
         when(accountRepository.findReservationByToken(tokenUuid)).thenReturn(Optional.of(entity));
 
+        assertThat(bankingService).isInstanceOf(BankingReservationQueryPort.class);
+        BankingReservationQueryPort queryPort = bankingService;
         ReservationToken token = new ReservationToken(tokenUuid);
-        Optional<ReservationView> result = bankingService.findReservation(token);
+        Optional<ReservationView> result = queryPort.findReservation(token);
 
         assertThat(result).isPresent();
         ReservationView view = result.get();
