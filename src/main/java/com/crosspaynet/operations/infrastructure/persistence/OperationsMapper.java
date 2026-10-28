@@ -5,12 +5,15 @@ import com.crosspaynet.operations.contracts.ReconciliationDiscrepancyView;
 import com.crosspaynet.operations.contracts.ReconciliationRunView;
 import com.crosspaynet.operations.domain.DiscrepancyId;
 import com.crosspaynet.operations.domain.DiscrepancyKey;
+import com.crosspaynet.operations.domain.DiscrepancyObservationId;
 import com.crosspaynet.operations.domain.DiscrepancyStatus;
 import com.crosspaynet.operations.domain.DiscrepancyType;
+import com.crosspaynet.operations.domain.ObservationProvenance;
 import com.crosspaynet.operations.domain.ReconciliationCheckExecution;
 import com.crosspaynet.operations.domain.ReconciliationCheckExecutionId;
 import com.crosspaynet.operations.domain.ReconciliationCheckStatus;
 import com.crosspaynet.operations.domain.ReconciliationDiscrepancy;
+import com.crosspaynet.operations.domain.ReconciliationDiscrepancyObservation;
 import com.crosspaynet.operations.domain.ReconciliationRun;
 import com.crosspaynet.operations.domain.ReconciliationRunId;
 import com.crosspaynet.operations.domain.ReconciliationRunStatus;
@@ -211,5 +214,37 @@ public class OperationsMapper {
     public ReconciliationDiscrepancyView toView(ReconciliationDiscrepancyEntity entity) {
         if (entity == null) return null;
         return toView(toDomain(entity));
+    }
+
+    public ReconciliationDiscrepancyObservationEntity toEntity(ReconciliationDiscrepancyObservation domain) {
+        if (domain == null) return null;
+        return new ReconciliationDiscrepancyObservationEntity(
+                domain.getObservationId().getValue(),
+                domain.getDiscrepancyId().getValue(),
+                domain.getRunId().getValue(),
+                domain.getDiscrepancyType().name(),
+                domain.getStatusAtObservation().name(),
+                domain.getSummary(),
+                domain.getDetails(),
+                domain.getObservedAt(),
+                domain.getProvenance().name(),
+                domain.getCreatedAt()
+        );
+    }
+
+    public ReconciliationDiscrepancyObservation toDomain(ReconciliationDiscrepancyObservationEntity entity) {
+        if (entity == null) return null;
+        return new ReconciliationDiscrepancyObservation(
+                DiscrepancyObservationId.of(entity.getObservationId()),
+                DiscrepancyId.of(entity.getDiscrepancyId()),
+                ReconciliationRunId.of(entity.getRunId()),
+                DiscrepancyType.valueOf(entity.getDiscrepancyType()),
+                DiscrepancyStatus.valueOf(entity.getStatusAtObservation()),
+                entity.getSummary(),
+                entity.getDetails(),
+                entity.getObservedAt(),
+                ObservationProvenance.valueOf(entity.getProvenance()),
+                entity.getCreatedAt()
+        );
     }
 }

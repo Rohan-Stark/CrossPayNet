@@ -41,6 +41,7 @@ import com.crosspaynet.operations.infrastructure.configuration.OperationsReconci
 import com.crosspaynet.operations.infrastructure.persistence.OperationsMapper;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationCheckExecutionRepository;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyEntity;
+import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyObservationRepository;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyRepository;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationRunEntity;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationRunRepository;
@@ -106,6 +107,8 @@ class ReconciliationEngineIntegrationTest {
 
     @Autowired
     private ReconciliationDiscrepancyRepository discrepancyRepository;
+    @Autowired
+    private ReconciliationDiscrepancyObservationRepository observationRepository;
 
     @Autowired
     private OperationsMapper operationsMapper;
@@ -128,6 +131,7 @@ class ReconciliationEngineIntegrationTest {
     @BeforeEach
     void cleanUp() {
         checkExecutionRepository.deleteAll();
+        observationRepository.deleteAll();
         discrepancyRepository.deleteAll();
         runRepository.deleteAll();
     }

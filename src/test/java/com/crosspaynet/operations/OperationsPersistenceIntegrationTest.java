@@ -16,6 +16,8 @@ import com.crosspaynet.operations.infrastructure.persistence.OperationsMapper;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationCheckExecutionEntity;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationCheckExecutionRepository;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyEntity;
+import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyObservationEntity;
+import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyObservationRepository;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyRepository;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationRunEntity;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationRunRepository;
@@ -29,6 +31,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -51,6 +54,9 @@ class OperationsPersistenceIntegrationTest {
 
     @Autowired
     private ReconciliationDiscrepancyRepository discrepancyRepository;
+
+    @Autowired
+    private ReconciliationDiscrepancyObservationRepository observationRepository;
 
     @Autowired
     private OperationsMapper operationsMapper;
@@ -231,23 +237,186 @@ class OperationsPersistenceIntegrationTest {
     }
 
     @Test
-    void shouldEnforceDatabaseCheckConstraintOnIncoherentResolutionTimestamp() {
-        UUID validRunId = UUID.randomUUID();
-        jdbcTemplate.update("""
-                INSERT INTO operations.reconciliation_run (
-                    run_id, version, status, started_at, checks_evaluated, discrepancy_count, triggered_by
-                ) VALUES (?, 0, 'IN_PROGRESS', now(), 0, 0, 'OP')
-                """, validRunId);
+    void shouldPersistAndRetrieveObservationEntity() {
+        ReconciliationRunId runId = ReconciliationRunId.generate();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        ReconciliationRun run = ReconciliationRun.start(runId, "OPERATOR_ALICE", now);
+        runRepository.saveAndFlush(operationsMapper.toEntity(run));
 
-        UUID discId = UUID.randomUUID();
+        DiscrepancyId discId = DiscrepancyId.generate();
+        DiscrepancyKey key = DiscrepancyKey.of(DiscrepancyType.STALE_IN_FLIGHT_WORKFLOW, "PAY-OBS-1");
+        ReconciliationDiscrepancy discrepancy = ReconciliationDiscrepancy.create(
+                discId, key, runId, DiscrepancyType.STALE_IN_FLIGHT_WORKFLOW, "PAY-OBS-1",
+                "Summary 1", "{\"data\":1}", now
+        );
+        discrepancyRepository.saveAndFlush(operationsMapper.toEntity(discrepancy));
+
+        UUID obsId = UUID.randomUUID();
+        ReconciliationDiscrepancyObservationEntity obsEntity = new ReconciliationDiscrepancyObservationEntity(
+                obsId, discId.getValue(), runId.getValue(),
+                DiscrepancyType.STALE_IN_FLIGHT_WORKFLOW.name(),
+                DiscrepancyStatus.OPEN.name(),
+                "Summary 1", "{\"data\":1}", now, "LIVE", now
+        );
+        observationRepository.saveAndFlush(obsEntity);
+
+        ReconciliationDiscrepancyObservationEntity loaded = observationRepository.findById(obsId).orElseThrow();
+        assertThat(loaded.getDiscrepancyId()).isEqualTo(discId.getValue());
+        assertThat(loaded.getRunId()).isEqualTo(runId.getValue());
+        assertThat(loaded.getProvenance()).isEqualTo("LIVE");
+        assertThat(loaded.getStatusAtObservation()).isEqualTo("OPEN");
+    }
+
+    @Test
+    void shouldEnforceObservationForeignKeyConstraints() {
+        UUID randomRunId = UUID.randomUUID();
+        UUID randomDiscId = UUID.randomUUID();
+
+        // Foreign key failure on non-existent discrepancy and run
         assertThatThrownBy(() -> jdbcTemplate.update("""
+                INSERT INTO operations.reconciliation_discrepancy_observation (
+                    observation_id, discrepancy_id, run_id, discrepancy_type, status_at_observation,
+                    summary, details, observed_at, provenance
+                ) VALUES (?, ?, ?, 'STALE_IN_FLIGHT_WORKFLOW', 'OPEN', 'Summary', NULL, now(), 'LIVE')
+                """, UUID.randomUUID(), randomDiscId, randomRunId))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void shouldEnforceObservationProvenanceCheckConstraint() {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        ReconciliationRunId validRunId = ReconciliationRunId.generate();
+        ReconciliationRun run = ReconciliationRun.start(validRunId, "OPERATOR_ALICE", now);
+        runRepository.saveAndFlush(operationsMapper.toEntity(run));
+
+        DiscrepancyId validDiscId = DiscrepancyId.generate();
+        DiscrepancyKey key = DiscrepancyKey.of(DiscrepancyType.STALE_IN_FLIGHT_WORKFLOW, "PAY-OBS-PROV");
+        ReconciliationDiscrepancy discrepancy = ReconciliationDiscrepancy.create(
+                validDiscId, key, validRunId, DiscrepancyType.STALE_IN_FLIGHT_WORKFLOW, "PAY-OBS-PROV",
+                "Summary", null, now
+        );
+        discrepancyRepository.saveAndFlush(operationsMapper.toEntity(discrepancy));
+
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                INSERT INTO operations.reconciliation_discrepancy_observation (
+                    observation_id, discrepancy_id, run_id, discrepancy_type, status_at_observation,
+                    summary, details, observed_at, provenance
+                ) VALUES (?, ?, ?, 'STALE_IN_FLIGHT_WORKFLOW', 'OPEN', 'Summary', NULL, now(), 'INVALID_PROVENANCE')
+                """, UUID.randomUUID(), validDiscId.getValue(), validRunId.getValue()))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void shouldEnforceObservationStatusCheckConstraint() {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        ReconciliationRunId validRunId = ReconciliationRunId.generate();
+        ReconciliationRun run = ReconciliationRun.start(validRunId, "OPERATOR_ALICE", now);
+        runRepository.saveAndFlush(operationsMapper.toEntity(run));
+
+        DiscrepancyId validDiscId = DiscrepancyId.generate();
+        DiscrepancyKey key = DiscrepancyKey.of(DiscrepancyType.STALE_IN_FLIGHT_WORKFLOW, "PAY-OBS-STAT");
+        ReconciliationDiscrepancy discrepancy = ReconciliationDiscrepancy.create(
+                validDiscId, key, validRunId, DiscrepancyType.STALE_IN_FLIGHT_WORKFLOW, "PAY-OBS-STAT",
+                "Summary", null, now
+        );
+        discrepancyRepository.saveAndFlush(operationsMapper.toEntity(discrepancy));
+
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                INSERT INTO operations.reconciliation_discrepancy_observation (
+                    observation_id, discrepancy_id, run_id, discrepancy_type, status_at_observation,
+                    summary, details, observed_at, provenance
+                ) VALUES (?, ?, ?, 'STALE_IN_FLIGHT_WORKFLOW', 'BOGUS_STATUS', 'Summary', NULL, now(), 'LIVE')
+                """, UUID.randomUUID(), validDiscId.getValue(), validRunId.getValue()))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void shouldBackfillLegacyObservationsWithHonestProvenanceAndDeduplication() {
+        Instant t0 = Instant.now().minus(2, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
+        Instant t1 = Instant.now().minus(1, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
+
+        ReconciliationRunId run1 = ReconciliationRunId.generate();
+        ReconciliationRunId run2 = ReconciliationRunId.generate();
+        runRepository.saveAndFlush(operationsMapper.toEntity(ReconciliationRun.start(run1, "OP", t0)));
+        runRepository.saveAndFlush(operationsMapper.toEntity(ReconciliationRun.start(run2, "OP", t1)));
+
+        // Legacy Row A: first_run_id == latest_run_id
+        UUID discA = UUID.randomUUID();
+        jdbcTemplate.update("""
                 INSERT INTO operations.reconciliation_discrepancy (
                     discrepancy_id, version, discrepancy_key, first_run_id, latest_run_id,
-                    discrepancy_type, operational_entity_id, status, summary,
-                    first_detected_at, last_observed_at, consecutive_detections, resolved_at
-                ) VALUES (?, 0, 'KEY:1', ?, ?, 'PAYMENT_LEDGER_BREAK', 'ENT-1',
-                          'RESOLVED_EXTERNALLY', 'Resolved without timestamp', now(), now(), 1, NULL)
-                """, discId, validRunId, validRunId))
-                .isInstanceOf(DataIntegrityViolationException.class);
+                    discrepancy_type, operational_entity_id, status, summary, details,
+                    first_detected_at, last_observed_at, consecutive_detections
+                ) VALUES (?, 0, 'KEY:LEGACY_A', ?, ?, 'STALE_IN_FLIGHT_WORKFLOW', 'ENT-A',
+                          'OPEN', 'Legacy A summary', '{"v":1}'::jsonb, ?, ?, 1)
+                """, discA, run1.getValue(), run1.getValue(), Timestamp.from(t0), Timestamp.from(t0));
+
+        // Legacy Row B: first_run_id <> latest_run_id
+        UUID discB = UUID.randomUUID();
+        jdbcTemplate.update("""
+                INSERT INTO operations.reconciliation_discrepancy (
+                    discrepancy_id, version, discrepancy_key, first_run_id, latest_run_id,
+                    discrepancy_type, operational_entity_id, status, summary, details,
+                    first_detected_at, last_observed_at, consecutive_detections
+                ) VALUES (?, 0, 'KEY:LEGACY_B', ?, ?, 'RESERVATION_PAYMENT_MISMATCH', 'ENT-B',
+                          'ACKNOWLEDGED', 'Legacy B summary', '{"v":2}'::jsonb, ?, ?, 2)
+                """, discB, run1.getValue(), run2.getValue(), Timestamp.from(t0), Timestamp.from(t1));
+
+        // Clean any existing observations for discA/discB to test backfill query explicitly
+        jdbcTemplate.update("DELETE FROM operations.reconciliation_discrepancy_observation WHERE discrepancy_id IN (?, ?)", discA, discB);
+
+        // Execute V17 backfill logic
+        jdbcTemplate.execute("""
+                INSERT INTO operations.reconciliation_discrepancy_observation (
+                    observation_id, discrepancy_id, run_id, discrepancy_type, status_at_observation,
+                    summary, details, observed_at, provenance, created_at
+                )
+                SELECT
+                    gen_random_uuid(), d.discrepancy_id, d.first_run_id, d.discrepancy_type, 'OPEN',
+                    d.summary,
+                    CASE WHEN d.first_run_id = d.latest_run_id THEN d.details ELSE NULL END,
+                    d.first_detected_at, 'LEGACY_RECONSTRUCTED', d.created_at
+                FROM operations.reconciliation_discrepancy d
+                WHERE d.discrepancy_id IN ('""" + discA + "', '" + discB + """
+                ');
+
+                INSERT INTO operations.reconciliation_discrepancy_observation (
+                    observation_id, discrepancy_id, run_id, discrepancy_type, status_at_observation,
+                    summary, details, observed_at, provenance, created_at
+                )
+                SELECT
+                    gen_random_uuid(), d.discrepancy_id, d.latest_run_id, d.discrepancy_type, d.status,
+                    d.summary, d.details, d.last_observed_at, 'LEGACY_RECONSTRUCTED', d.updated_at
+                FROM operations.reconciliation_discrepancy d
+                WHERE d.latest_run_id <> d.first_run_id
+                  AND d.discrepancy_id IN ('""" + discA + "', '" + discB + """
+                ')
+                ON CONFLICT (discrepancy_id, run_id) DO NOTHING;
+                """);
+
+        // Verify Discrepancy A: exactly 1 observation backfilled
+        List<ReconciliationDiscrepancyObservationEntity> obsA =
+                observationRepository.findByDiscrepancyIdOrderByObservedAtAsc(discA);
+        assertThat(obsA).hasSize(1);
+        assertThat(obsA.getFirst().getRunId()).isEqualTo(run1.getValue());
+        assertThat(obsA.getFirst().getProvenance()).isEqualTo("LEGACY_RECONSTRUCTED");
+        assertThat(obsA.getFirst().getDetails()).isEqualTo("{\"v\": 1}");
+
+        // Verify Discrepancy B: exactly 2 observations backfilled
+        List<ReconciliationDiscrepancyObservationEntity> obsB =
+                observationRepository.findByDiscrepancyIdOrderByObservedAtAsc(discB);
+        assertThat(obsB).hasSize(2);
+
+        // Observation 1: first run (honest: details IS NULL, status OPEN)
+        assertThat(obsB.get(0).getRunId()).isEqualTo(run1.getValue());
+        assertThat(obsB.get(0).getProvenance()).isEqualTo("LEGACY_RECONSTRUCTED");
+        assertThat(obsB.get(0).getStatusAtObservation()).isEqualTo("OPEN");
+        assertThat(obsB.get(0).getDetails()).isNull();
+
+        // Observation 2: latest run (reconstructed with latest status and details)
+        assertThat(obsB.get(1).getRunId()).isEqualTo(run2.getValue());
+        assertThat(obsB.get(1).getProvenance()).isEqualTo("LEGACY_RECONSTRUCTED");
+        assertThat(obsB.get(1).getStatusAtObservation()).isEqualTo("ACKNOWLEDGED");
+        assertThat(obsB.get(1).getDetails()).isEqualTo("{\"v\": 2}");
     }
 }

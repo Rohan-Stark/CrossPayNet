@@ -6,12 +6,16 @@ import com.crosspaynet.operations.application.ReconciliationServiceImpl;
 import com.crosspaynet.operations.contracts.ReconciliationService;
 import com.crosspaynet.operations.domain.DiscrepancyId;
 import com.crosspaynet.operations.domain.DiscrepancyKey;
+import com.crosspaynet.operations.domain.DiscrepancyObservationId;
 import com.crosspaynet.operations.domain.DiscrepancyStatus;
 import com.crosspaynet.operations.domain.DiscrepancyType;
+import com.crosspaynet.operations.domain.ObservationProvenance;
 import com.crosspaynet.operations.domain.ReconciliationDiscrepancy;
+import com.crosspaynet.operations.domain.ReconciliationDiscrepancyObservation;
 import com.crosspaynet.operations.domain.ReconciliationRun;
 import com.crosspaynet.operations.domain.ReconciliationRunId;
 import com.crosspaynet.operations.infrastructure.persistence.OperationsMapper;
+import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyObservationRepository;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyRepository;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationRunRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -65,6 +69,9 @@ class ReconciliationControllerIntegrationTest {
     private ReconciliationDiscrepancyRepository discrepancyRepository;
 
     @Autowired
+    private ReconciliationDiscrepancyObservationRepository observationRepository;
+
+    @Autowired
     private OperationsMapper operationsMapper;
 
     @Autowired
@@ -78,6 +85,7 @@ class ReconciliationControllerIntegrationTest {
                 .apply(SecurityMockMvcConfigurers.springSecurity())
                 .build();
 
+        jdbcTemplate.execute("DELETE FROM operations.reconciliation_discrepancy_observation");
         jdbcTemplate.execute("DELETE FROM operations.reconciliation_discrepancy");
         jdbcTemplate.execute("DELETE FROM operations.reconciliation_check_execution");
         jdbcTemplate.execute("DELETE FROM operations.reconciliation_run");
@@ -225,6 +233,18 @@ class ReconciliationControllerIntegrationTest {
         );
         discrepancyRepository.saveAndFlush(operationsMapper.toEntity(discrepancy));
 
+        ReconciliationDiscrepancyObservation observation = ReconciliationDiscrepancyObservation.createLive(
+                DiscrepancyObservationId.generate(),
+                discId,
+                runId,
+                DiscrepancyType.STALE_IN_FLIGHT_WORKFLOW,
+                DiscrepancyStatus.OPEN,
+                "Payment PAY-001 exceeded threshold",
+                "{\"paymentId\":\"PAY-001\",\"ageMinutes\":120}",
+                now
+        );
+        observationRepository.saveAndFlush(operationsMapper.toEntity(observation));
+
         // 1. List all discrepancies
         mockMvc.perform(get(BASE_URL + "/discrepancies")
                         .with(user("ops").roles("OPERATIONS")))
@@ -279,5 +299,73 @@ class ReconciliationControllerIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status", is(404)))
                 .andExpect(jsonPath("$.error", is("Not Found")));
+    }
+
+    @Test
+    @DisplayName("GET /discrepancies?runId={runId} finds discrepancies observed during an intermediate run")
+    void shouldFindDiscrepanciesObservedInIntermediateRun() throws Exception {
+        Instant t0 = Instant.now().minus(30, ChronoUnit.MINUTES).truncatedTo(ChronoUnit.MICROS);
+        Instant t1 = Instant.now().minus(20, ChronoUnit.MINUTES).truncatedTo(ChronoUnit.MICROS);
+        Instant t2 = Instant.now().minus(10, ChronoUnit.MINUTES).truncatedTo(ChronoUnit.MICROS);
+
+        ReconciliationRunId run1Id = ReconciliationRunId.generate();
+        ReconciliationRun run1 = ReconciliationRun.start(run1Id, "ops", t0);
+        run1.complete(4, 1, t0.plusSeconds(2));
+        runRepository.saveAndFlush(operationsMapper.toEntity(run1));
+
+        ReconciliationRunId run2Id = ReconciliationRunId.generate();
+        ReconciliationRun run2 = ReconciliationRun.start(run2Id, "ops", t1);
+        run2.complete(4, 2, t1.plusSeconds(2));
+        runRepository.saveAndFlush(operationsMapper.toEntity(run2));
+
+        ReconciliationRunId run3Id = ReconciliationRunId.generate();
+        ReconciliationRun run3 = ReconciliationRun.start(run3Id, "ops", t2);
+        run3.complete(4, 1, t2.plusSeconds(2));
+        runRepository.saveAndFlush(operationsMapper.toEntity(run3));
+
+        // Discrepancy 1: seen in run1, run2, and run3
+        DiscrepancyId disc1Id = DiscrepancyId.generate();
+        DiscrepancyKey key1 = DiscrepancyKey.of(DiscrepancyType.STALE_IN_FLIGHT_WORKFLOW, "PAY-HIST-1");
+        ReconciliationDiscrepancy disc1 = ReconciliationDiscrepancy.create(
+                disc1Id, key1, run1Id, DiscrepancyType.STALE_IN_FLIGHT_WORKFLOW, "PAY-HIST-1",
+                "Stale workflow 1", "{}", t0);
+        disc1.recordRepeatObservation(run2Id, "Stale workflow 1 (updated)", "{}", t1);
+        disc1.recordRepeatObservation(run3Id, "Stale workflow 1 (latest)", "{}", t2);
+        discrepancyRepository.saveAndFlush(operationsMapper.toEntity(disc1));
+
+        observationRepository.saveAndFlush(operationsMapper.toEntity(ReconciliationDiscrepancyObservation.createLive(
+                DiscrepancyObservationId.generate(), disc1Id, run1Id,
+                DiscrepancyType.STALE_IN_FLIGHT_WORKFLOW, DiscrepancyStatus.OPEN, "Stale 1", "{}", t0)));
+        observationRepository.saveAndFlush(operationsMapper.toEntity(ReconciliationDiscrepancyObservation.createLive(
+                DiscrepancyObservationId.generate(), disc1Id, run2Id,
+                DiscrepancyType.STALE_IN_FLIGHT_WORKFLOW, DiscrepancyStatus.OPEN, "Stale 1 intermediate", "{}", t1)));
+        observationRepository.saveAndFlush(operationsMapper.toEntity(ReconciliationDiscrepancyObservation.createLive(
+                DiscrepancyObservationId.generate(), disc1Id, run3Id,
+                DiscrepancyType.STALE_IN_FLIGHT_WORKFLOW, DiscrepancyStatus.OPEN, "Stale 1 latest", "{}", t2)));
+
+        // Discrepancy 2: only seen in intermediate run2
+        DiscrepancyId disc2Id = DiscrepancyId.generate();
+        DiscrepancyKey key2 = DiscrepancyKey.of(DiscrepancyType.INCOMPLETE_EVENT_PUBLICATION, "EVT-HIST-2");
+        ReconciliationDiscrepancy disc2 = ReconciliationDiscrepancy.create(
+                disc2Id, key2, run2Id, DiscrepancyType.INCOMPLETE_EVENT_PUBLICATION, "EVT-HIST-2",
+                "Incomplete event", "{}", t1);
+        discrepancyRepository.saveAndFlush(operationsMapper.toEntity(disc2));
+
+        observationRepository.saveAndFlush(operationsMapper.toEntity(ReconciliationDiscrepancyObservation.createLive(
+                DiscrepancyObservationId.generate(), disc2Id, run2Id,
+                DiscrepancyType.INCOMPLETE_EVENT_PUBLICATION, DiscrepancyStatus.OPEN, "Incomplete event", "{}", t1)));
+
+        // Querying for run2 (intermediate run for disc1, only run for disc2) returns BOTH
+        mockMvc.perform(get(BASE_URL + "/discrepancies?runId=" + run2Id.getValue())
+                        .with(user("ops").roles("OPERATIONS")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", hasSize(2)));
+
+        // Querying for run3 returns only disc1
+        mockMvc.perform(get(BASE_URL + "/discrepancies?runId=" + run3Id.getValue())
+                        .with(user("ops").roles("OPERATIONS")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", hasSize(1)))
+                .andExpect(jsonPath("$.content[0].discrepancyId", is(disc1Id.getValue().toString())));
     }
 }

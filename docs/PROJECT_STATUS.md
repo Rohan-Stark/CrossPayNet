@@ -1,7 +1,7 @@
 # Project Status
 
-Current Phase: Phase 9A — Read-Only Operational Reconciliation
-Current Subphase: Checkpoint 4 Implemented Locally (Reconciliation REST API, Security & Integration Verification)
+Current Phase: Phase 9B — Scheduled Reconciliation & Historical Observation Tracking
+Current Subphase: Checkpoint 1 Implemented Locally (Observation History & Persistence)
 
 ## Completed Phases
 * Phase 0 — Engineering Constitution
@@ -46,14 +46,18 @@ Current Subphase: Checkpoint 4 Implemented Locally (Reconciliation REST API, Sec
 * **Phase 8 — Security & Compliance (`security` and `compliance` Modules)** ✅ (Accepted & Pushed: `05681d9`)
   * Role-based access control (RBAC) with method security (`CUSTOMER`, `COMPLIANCE`, `OPERATIONS`, `TELLER`, `ADMIN`), customer debit ownership validation via `SecuredPaymentPortalService`, administrative protection on `BankingService.fundAccount`, PII and account number data masking via `DataMasker`, sanctions and high-value screening via `SanctionsMatcher`, persistent review workflow via `compliance.compliance_review` (`V15`), `ComplianceService` decision lifecycle with `ROLE_COMPLIANCE` authorization, and automated payment screening on `PaymentInstructionReceived`.
 
-* **Phase 9A — Read-Only Operational Reconciliation (`operations` Module)** ⏳ (Implemented Locally, Pending Review)
+* **Phase 9A — Read-Only Operational Reconciliation (`operations` Module)** ✅ (Accepted & Pushed: `d8ece18`)
   * **Checkpoint 1 (Read-Only Public Contracts)**: `PaymentReconciliationPort` with deterministic keyset pagination, `BankingService.findReservation(ReservationToken)`, `LedgerService.findByPostingKey(LedgerPostingKey)`, and `EventPublicationQueryPort` with metadata minimization (`585e14f`, `9b833df`).
   * **Checkpoint 2 (Operations Domain, Schema & Persistence)**: Dedicated `com.crosspaynet.operations` module declaration, Flyway migration `V16__init_operations_schema.sql` (`operations.reconciliation_run`, `operations.reconciliation_check_execution`, `operations.reconciliation_discrepancy`), JSONB details, repeat detection tracking (`consecutive_detections`), optimistic locking (`version`), and domain/persistence mappings (`1501b18`).
   * **Checkpoint 3 (Reconciliation Engine, Contracts & Run Recovery)**: `ReconciliationService` engine orchestrating four read-only check executors (`StalePaymentWorkflowCheck`, `PaymentReservationMismatchCheck`, `SettlementLedgerInconsistencyCheck`, `IncompleteEventPublicationCheck`), `PaymentMessageQueryPort` in `messaging::contracts`, `BankingReservationQueryPort` in `banking::contracts`, `LedgerPostingQueryPort` in `ledger::contracts`, strictly isolated module boundaries (`operations` restricted to named contracts), abandoned run recovery policy with `ApplicationReadyEvent` and pre-trigger recovery, discrepancy deduplication with repeat detection (`DiscrepancyRecorder`), `PARTIAL_FAILURE` lifecycle semantics, and concurrency locking.
   * **Checkpoint 4 (Operations REST API, Security & Verification)**: Secured Spring Web MVC endpoints under `/api/v1/operations/reconciliation/**` protected by `@PreAuthorize("hasAnyRole('OPERATIONS', 'ADMIN')")`, strictly deriving operator identity from authenticated `Authentication.getName()`, mapping active run contention to `409 Conflict`, deterministic paginated querying (`startedAt DESC, runId DESC` for runs; `lastObservedAt DESC, discrepancyId DESC` for discrepancies), DTO mappings with check outcomes and sanitized error responses (`ApiErrorResponse`), ArchUnit controller isolation from persistence repositories, and comprehensive MockMvc RBAC security and PostgreSQL Testcontainers integration test suites.
 
+
+* **Phase 9B — Scheduled Reconciliation & Historical Observation Tracking (`operations` Module)** ⏳ (In Progress)
+  * **Checkpoint 1 (Observation History & Persistence)**: Flyway migration `V17__operations_discrepancy_observations.sql`, Operations-owned `reconciliation_discrepancy_observation` table, honest legacy backfill (`LEGACY_RECONSTRUCTED`), `ReconciliationDiscrepancyObservation` domain record, JPA entity and repository, `DiscrepancyRecorder` per-run idempotency, and evolved `runId` query filter matching historical intermediate runs.
+
 ## Current/Next Phase
-* **Phase 9A — Read-Only Operational Reconciliation (Acceptance Review & Phase 9A Wrap-up)** ▶ NEXT
+* **Phase 9B Checkpoint 2 — Scheduled Background Reconciliation** ▶ NEXT
 
 ## Upcoming Phases
 * Phase 9 — Observability & Operations

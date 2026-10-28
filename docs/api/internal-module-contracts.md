@@ -317,7 +317,7 @@ Secure operational reconciliation and discrepancy management endpoints exposed u
 * **Parameters**:
   * `status`: Optional lifecycle filter (`OPEN`, `RESOLVED_EXTERNALLY`, `ACKNOWLEDGED`).
   * `type`: Optional discrepancy category (`STALE_IN_FLIGHT_WORKFLOW`, `RESERVATION_PAYMENT_MISMATCH`, `PAYMENT_LEDGER_BREAK`, `INCOMPLETE_EVENT_PUBLICATION`).
-  * `runId`: Optional run filter (matches first or latest run).
+  * `runId`: Optional run filter (matches any run during which the discrepancy was observed: first, intermediate, or latest run, via observation history subquery).
   * `page` (default: 0), `size` (default: 20).
 * **Responses**:
   * `200 OK`: `PagedResponse<ReconciliationDiscrepancyResponse>`.
@@ -329,3 +329,26 @@ Secure operational reconciliation and discrepancy management endpoints exposed u
   * `200 OK`: `ReconciliationDiscrepancyResponse`.
   * `404 Not Found`: Discrepancy not found.
   * `400 Bad Request`: Malformed discrepancy UUID.
+
+---
+
+## 4. Operational Discrepancy Observation History (Phase 9B Checkpoint 1)
+
+* **Purpose**: Provide durable, immutable audit history of every time a discrepancy is observed during any reconciliation run.
+* **Storage Table**: `operations.reconciliation_discrepancy_observation` (`V17`).
+* **Attributes**:
+  * `observation_id` (UUID, Primary Key)
+  * `discrepancy_id` (UUID, Foreign Key to `operations.reconciliation_discrepancy`, `ON DELETE RESTRICT`)
+  * `run_id` (UUID, Foreign Key to `operations.reconciliation_run`, `ON DELETE RESTRICT`)
+  * `discrepancy_type` (`STALE_IN_FLIGHT_WORKFLOW`, `RESERVATION_PAYMENT_MISMATCH`, `PAYMENT_LEDGER_BREAK`, `INCOMPLETE_EVENT_PUBLICATION`)
+  * `status_at_observation` (`OPEN`, `RESOLVED_EXTERNALLY`, `ACKNOWLEDGED`)
+  * `summary` (VARCHAR(500))
+  * `details` (JSONB)
+  * `observed_at` (TIMESTAMPTZ)
+  * `provenance` (`LIVE`, `LEGACY_RECONSTRUCTED`)
+  * `created_at` (TIMESTAMPTZ)
+* **Invariants**:
+  * Exactly at most one observation record per `(discrepancy_id, run_id)` pair enforced by unique constraint `uk_discrepancy_run_observation`.
+  * Recording is strictly append-only; observations are never mutated after creation.
+  * Same-run idempotency enforced by `DiscrepancyRecorder`: duplicate check detections in the same run neither duplicate observations nor increment `consecutiveDetections`.
+  * Pre-V17 legacy records backfilled honestly: 1 observation for single-run records; exactly 2 observations (first run and latest run) for multi-run records, marked with provenance `LEGACY_RECONSTRUCTED`. Unrecorded intermediate runs are not fabricated.

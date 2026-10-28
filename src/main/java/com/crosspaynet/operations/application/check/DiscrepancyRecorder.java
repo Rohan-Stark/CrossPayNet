@@ -2,11 +2,14 @@ package com.crosspaynet.operations.application.check;
 
 import com.crosspaynet.operations.domain.DiscrepancyId;
 import com.crosspaynet.operations.domain.DiscrepancyKey;
+import com.crosspaynet.operations.domain.DiscrepancyObservationId;
 import com.crosspaynet.operations.domain.DiscrepancyType;
 import com.crosspaynet.operations.domain.ReconciliationDiscrepancy;
+import com.crosspaynet.operations.domain.ReconciliationDiscrepancyObservation;
 import com.crosspaynet.operations.domain.ReconciliationRunId;
 import com.crosspaynet.operations.infrastructure.persistence.OperationsMapper;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyEntity;
+import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyObservationRepository;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyRepository;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,26 +19,32 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Encapsulates discrepancy deduplication, repeat-observation recording, and persistence.
+ * Encapsulates discrepancy deduplication, repeat-observation recording, and durable observation persistence.
  */
 @Component
 public class DiscrepancyRecorder {
 
     private final ReconciliationDiscrepancyRepository discrepancyRepository;
+    private final ReconciliationDiscrepancyObservationRepository observationRepository;
     private final OperationsMapper operationsMapper;
 
     public DiscrepancyRecorder(
             ReconciliationDiscrepancyRepository discrepancyRepository,
+            ReconciliationDiscrepancyObservationRepository observationRepository,
             OperationsMapper operationsMapper
     ) {
         this.discrepancyRepository = Objects.requireNonNull(discrepancyRepository, "discrepancyRepository cannot be null.");
+        this.observationRepository = Objects.requireNonNull(observationRepository, "observationRepository cannot be null.");
         this.operationsMapper = Objects.requireNonNull(operationsMapper, "operationsMapper cannot be null.");
     }
 
     /**
-     * Records an observed discrepancy.
-     * If the discrepancy already exists for the given (type, operationalEntityId) key,
-     * updates the existing record with repeat observation semantics; otherwise creates a new one.
+     * Records an observed discrepancy and its discrete run observation snapshot.
+     *
+     * <p>If the discrepancy already exists for the given (type, operationalEntityId) key,
+     * updates the existing record with repeat observation semantics and appends a new observation snapshot.
+     * If the discrepancy was already recorded during the current run, this method is idempotent and does
+     * not double-count consecutive detections or duplicate observation rows.
      */
     @Transactional
     public void recordDiscrepancy(
@@ -68,12 +77,43 @@ public class DiscrepancyRecorder {
                     now
             );
             discrepancyRepository.save(operationsMapper.toEntity(discrepancy));
+
+            ReconciliationDiscrepancyObservation observation = ReconciliationDiscrepancyObservation.createLive(
+                    DiscrepancyObservationId.generate(),
+                    id,
+                    runId,
+                    type,
+                    discrepancy.getStatus(),
+                    summary,
+                    detailsJson,
+                    now
+            );
+            observationRepository.save(operationsMapper.toEntity(observation));
         } else {
             ReconciliationDiscrepancyEntity entity = existingOpt.get();
+
+            // Idempotency guard: prevent duplicate observation and counter increments within the same run
+            if (entity.getLatestRunId().equals(runId.getValue())
+                    || observationRepository.existsByDiscrepancyIdAndRunId(entity.getDiscrepancyId(), runId.getValue())) {
+                return;
+            }
+
             ReconciliationDiscrepancy domain = operationsMapper.toDomain(entity);
             domain.recordRepeatObservation(runId, summary, detailsJson, now);
             operationsMapper.updateEntity(domain, entity);
             discrepancyRepository.save(entity);
+
+            ReconciliationDiscrepancyObservation observation = ReconciliationDiscrepancyObservation.createLive(
+                    DiscrepancyObservationId.generate(),
+                    domain.getDiscrepancyId(),
+                    runId,
+                    type,
+                    domain.getStatus(),
+                    summary,
+                    detailsJson,
+                    now
+            );
+            observationRepository.save(operationsMapper.toEntity(observation));
         }
     }
 }

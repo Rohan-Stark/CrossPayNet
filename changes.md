@@ -4,6 +4,44 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
+## 2026-10-28 — Phase 9B Checkpoint 1: Observation History & Persistence — *Implemented Locally (Pending Acceptance Review)*
+
+* **Scope**: Implemented durable observation history and persistence for operational reconciliation discrepancies in the `operations` module:
+  * **Flyway Migration `V17__operations_discrepancy_observations.sql`**:
+    * Created table `operations.reconciliation_discrepancy_observation` with:
+      * `observation_id UUID PRIMARY KEY`, `discrepancy_id UUID NOT NULL REFERENCES operations.reconciliation_discrepancy(discrepancy_id) ON DELETE RESTRICT`, `run_id UUID NOT NULL REFERENCES operations.reconciliation_run(run_id) ON DELETE RESTRICT`.
+      * `discrepancy_type VARCHAR(64) NOT NULL` with CHECK constraint (`STALE_IN_FLIGHT_WORKFLOW`, `RESERVATION_PAYMENT_MISMATCH`, `PAYMENT_LEDGER_BREAK`, `INCOMPLETE_EVENT_PUBLICATION`).
+      * `status_at_observation VARCHAR(32) NOT NULL` with CHECK constraint (`OPEN`, `RESOLVED_EXTERNALLY`, `ACKNOWLEDGED`).
+      * `summary VARCHAR(500) NOT NULL`, `details JSONB NULL`, `observed_at TIMESTAMPTZ NOT NULL`, `provenance VARCHAR(32) NOT NULL` with CHECK constraint (`LIVE`, `LEGACY_RECONSTRUCTED`), `created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()`.
+      * Unique constraint `uk_discrepancy_run_observation (discrepancy_id, run_id)` guaranteeing at most one observation per discrepancy per run.
+      * Indexes: `idx_reconciliation_observation_run (run_id)`, `idx_reconciliation_observation_discrepancy (discrepancy_id)`, `idx_reconciliation_observation_observed (observed_at)`.
+    * Implemented honest legacy backfill for existing discrepancies:
+      * When `first_run_id == latest_run_id`: backfilled 1 observation row per discrepancy marked `LEGACY_RECONSTRUCTED` with current status, summary, and details.
+      * When `first_run_id <> latest_run_id`: backfilled exactly 2 observation rows per discrepancy marked `LEGACY_RECONSTRUCTED` (the first run with `observed_at = first_detected_at`, `status_at_observation = 'OPEN'`, `details = NULL`; the latest run with `observed_at = last_observed_at`, current status, and current details). Unrecorded intermediate runs are not fabricated.
+  * **Domain Model (`com.crosspaynet.operations.domain`)**:
+    * Created `DiscrepancyObservationId` UUID value object with strict parsing/generation.
+    * Created `ObservationProvenance` enum (`LIVE`, `LEGACY_RECONSTRUCTED`).
+    * Created immutable `ReconciliationDiscrepancyObservation` domain record with comprehensive validation, invariant checks, and factory method `createLive(...)`.
+  * **Persistence Layer (`com.crosspaynet.operations.infrastructure.persistence`)**:
+    * Created `ReconciliationDiscrepancyObservationEntity` JPA entity with JSONB details mapping and audit timestamps.
+    * Created `ReconciliationDiscrepancyObservationRepository` Spring Data JPA repository with lookup methods by discrepancy ID and existence check by `(discrepancyId, runId)`.
+    * Updated `OperationsMapper` with entity-to-domain and domain-to-entity mapping for discrepancy observations.
+  * **Discrepancy Recording & Per-Run Idempotency (`DiscrepancyRecorder`)**:
+    * Extended `DiscrepancyRecorder.recordDiscrepancy` to persist a `LIVE` observation record alongside new discrepancies and repeat detections.
+    * Implemented same-run idempotency: if a discrepancy is recorded multiple times within the same reconciliation run, observation recording and `consecutiveDetections` incrementing are skipped idempotently, preventing duplicate observations.
+    * Enforced database unique constraint `uk_discrepancy_run_observation` as durable backstop.
+  * **Evolved Historical Run Filter (`ReconciliationServiceImpl`)**:
+    * Updated `findDiscrepancies(DiscrepancyQueryFilter)` criteria query so filtering by `runId` subqueries `operations.reconciliation_discrepancy_observation`.
+    * Discrepancies observed during any run (first, intermediate, or latest) are now truthfully retrieved when filtering by `runId`.
+  * **Tests & Verification**:
+    * Added `DiscrepancyObservationTest` (6 unit tests) verifying value objects, domain invariants, and factories.
+    * Added `DiscrepancyRecorderIntegrationTest` (4 integration tests) testing initial live observation, multi-run repeat detection, same-run idempotency, and database unique constraint enforcement.
+    * Extended `OperationsPersistenceIntegrationTest` verifying observation entity persistence, foreign key restrictions, check constraints, and legacy backfill honesty.
+    * Extended `ReconciliationControllerIntegrationTest` verifying intermediate-run discrepancy queries via REST API.
+    * Full suite verified: 83 Operations tests passed (unit, architecture, security, persistence, and REST integration) with zero failures.
+
+---
+
 ## 2026-10-28 — Phase 9A Checkpoint 4: Operations Reconciliation REST API & RBAC Security — *Implemented Locally (Pending Acceptance Review)*
 
 * **Scope**: Implemented secured REST API endpoints, request/response DTOs, exception handling, and security integration tests for operational reconciliation in the `operations` module:

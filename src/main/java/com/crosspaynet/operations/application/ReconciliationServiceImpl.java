@@ -20,10 +20,13 @@ import com.crosspaynet.operations.domain.ReconciliationRunStatus;
 import com.crosspaynet.operations.infrastructure.persistence.OperationsMapper;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationCheckExecutionRepository;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyEntity;
+import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyObservationEntity;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyRepository;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationRunEntity;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationRunRepository;
 import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Subquery;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -321,10 +324,11 @@ public class ReconciliationServiceImpl implements ReconciliationService {
                 predicates.add(cb.equal(root.get("discrepancyType"), filter.type().name()));
             }
             if (filter.runId() != null) {
-                predicates.add(cb.or(
-                        cb.equal(root.get("latestRunId"), filter.runId().getValue()),
-                        cb.equal(root.get("firstRunId"), filter.runId().getValue())
-                ));
+                Subquery<UUID> subquery = query.subquery(UUID.class);
+                Root<ReconciliationDiscrepancyObservationEntity> obsRoot = subquery.from(ReconciliationDiscrepancyObservationEntity.class);
+                subquery.select(obsRoot.get("discrepancyId"))
+                        .where(cb.equal(obsRoot.get("runId"), filter.runId().getValue()));
+                predicates.add(root.get("discrepancyId").in(subquery));
             }
             return cb.and(predicates.toArray(new Predicate[0]));
         };
