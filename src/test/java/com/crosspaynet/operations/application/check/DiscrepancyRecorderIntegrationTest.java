@@ -20,12 +20,14 @@ import com.crosspaynet.operations.infrastructure.persistence.ReconciliationRunRe
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,6 +38,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -49,7 +53,7 @@ class DiscrepancyRecorderIntegrationTest {
     @Autowired
     private ReconciliationDiscrepancyRepository discrepancyRepository;
 
-    @Autowired
+    @MockitoSpyBean
     private ReconciliationDiscrepancyObservationRepository observationRepository;
 
     @Autowired
@@ -63,6 +67,7 @@ class DiscrepancyRecorderIntegrationTest {
 
     @BeforeEach
     void cleanTables() {
+        Mockito.reset(observationRepository);
         jdbcTemplate.execute("DELETE FROM operations.reconciliation_discrepancy_observation");
         jdbcTemplate.execute("DELETE FROM operations.reconciliation_discrepancy");
         jdbcTemplate.execute("DELETE FROM operations.reconciliation_check_execution");
@@ -221,5 +226,89 @@ class DiscrepancyRecorderIntegrationTest {
 
         assertThatThrownBy(() -> observationRepository.saveAndFlush(operationsMapper.toEntity(duplicate)))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("New discrepancy aggregate and observation roll back atomically when observation save fails")
+    void newDiscrepancyRollsBackAggregateWhenObservationSaveFails() {
+        ReconciliationRunId runId = createRun("OPS_FAIL_NEW");
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        String entityId = "PAY-ROLLBACK-NEW";
+        DiscrepancyKey key = DiscrepancyKey.of(DiscrepancyType.STALE_IN_FLIGHT_WORKFLOW, entityId);
+
+        // Inject controlled failure during observation persistence
+        doThrow(new RuntimeException("Simulated observation persistence failure"))
+                .when(observationRepository).save(any(ReconciliationDiscrepancyObservationEntity.class));
+
+        assertThatThrownBy(() -> discrepancyRecorder.recordDiscrepancy(
+                runId,
+                DiscrepancyType.STALE_IN_FLIGHT_WORKFLOW,
+                entityId,
+                "Stale workflow doomed to fail",
+                "{\"error\":true}",
+                now
+        )).isInstanceOf(RuntimeException.class)
+          .hasMessage("Simulated observation persistence failure");
+
+        // Verify from database that NEITHER aggregate nor observation was persisted
+        assertThat(discrepancyRepository.findByDiscrepancyKey(key.getValue())).isEmpty();
+        assertThat(observationRepository.count()).isZero();
+    }
+
+    @Test
+    @DisplayName("Repeat detection aggregate update rolls back atomically when observation save fails")
+    void repeatDetectionRollsBackAggregateUpdateWhenObservationSaveFails() {
+        ReconciliationRunId run1 = createRun("OPS_RUN1");
+        ReconciliationRunId run2 = createRun("OPS_RUN2");
+        Instant t1 = Instant.now().minus(1, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
+        Instant t2 = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        String entityId = "PAY-ROLLBACK-REPEAT";
+        DiscrepancyKey key = DiscrepancyKey.of(DiscrepancyType.PAYMENT_LEDGER_BREAK, entityId);
+
+        // 1. Initial observation succeeds
+        discrepancyRecorder.recordDiscrepancy(
+                run1,
+                DiscrepancyType.PAYMENT_LEDGER_BREAK,
+                entityId,
+                "Initial ledger break",
+                "{\"v\":1}",
+                t1
+        );
+
+        ReconciliationDiscrepancyEntity initialEntity =
+                discrepancyRepository.findByDiscrepancyKey(key.getValue()).orElseThrow();
+        assertThat(initialEntity.getConsecutiveDetections()).isEqualTo(1);
+        assertThat(initialEntity.getLatestRunId()).isEqualTo(run1.getValue());
+        Instant initialLastObserved = initialEntity.getLastObservedAt();
+
+        // 2. Configure spy to fail during observation save for run2
+        doThrow(new RuntimeException("Simulated observation persistence failure on repeat"))
+                .when(observationRepository).save(any(ReconciliationDiscrepancyObservationEntity.class));
+
+        // 3. Attempt repeat observation in run2
+        assertThatThrownBy(() -> discrepancyRecorder.recordDiscrepancy(
+                run2,
+                DiscrepancyType.PAYMENT_LEDGER_BREAK,
+                entityId,
+                "Updated ledger break attempt",
+                "{\"v\":2}",
+                t2
+        )).isInstanceOf(RuntimeException.class)
+          .hasMessage("Simulated observation persistence failure on repeat");
+
+        // 4. Verify from database that aggregate update rolled back:
+        // consecutiveDetections is still 1, latestRunId is still run1, lastObservedAt unchanged, summary unchanged
+        ReconciliationDiscrepancyEntity postFailureEntity =
+                discrepancyRepository.findByDiscrepancyKey(key.getValue()).orElseThrow();
+        assertThat(postFailureEntity.getConsecutiveDetections()).isEqualTo(1);
+        assertThat(postFailureEntity.getLatestRunId()).isEqualTo(run1.getValue());
+        assertThat(postFailureEntity.getLastObservedAt()).isEqualTo(initialLastObserved);
+        assertThat(postFailureEntity.getSummary()).isEqualTo("Initial ledger break");
+
+        // And only the first run's observation exists
+        List<ReconciliationDiscrepancyObservationEntity> observations =
+                observationRepository.findByDiscrepancyIdOrderByObservedAtAsc(postFailureEntity.getDiscrepancyId());
+        assertThat(observations).hasSize(1);
+        assertThat(observations.getFirst().getRunId()).isEqualTo(run1.getValue());
     }
 }

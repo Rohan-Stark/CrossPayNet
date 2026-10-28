@@ -4,6 +4,28 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
+## 2026-10-28 — Phase 9B Checkpoint 1 Corrective Tests: Real V16-to-V17 Flyway Migration & Atomic Rollback Verification — *Implemented Locally (Pending Acceptance Review)*
+
+* **Scope**: Addressed acceptance review test coverage gaps for Phase 9B Checkpoint 1 without modifying production code:
+  * **Genuine V16-to-V17 Flyway Migration Integration Test (`OperationsFlywayV17MigrationIntegrationTest`)**:
+    * Created dedicated test with clean PostgreSQL Testcontainer instance migrating initially up to target version `16` (`flyway.target("16")`).
+    * Inserted valid legacy V16 fixtures: single-run discrepancy (`first_run_id == latest_run_id`) and multi-run discrepancy (`first_run_id != latest_run_id`).
+    * Captured full pre-migration state of `operations.reconciliation_discrepancy` rows.
+    * Executed actual Flyway migration to version `17` (`flyway.target("17").migrate()`).
+    * Verified exactly 1 observation created for single-run discrepancy with preserved details and status; verified exactly 2 observations created for multi-run discrepancy (first run honestly sets `details = NULL` and `status = OPEN`; latest run uses latest snapshot; 0 intermediate runs fabricated).
+    * Verified all reconstructed rows use `LEGACY_RECONSTRUCTED` provenance.
+    * Verified pre-existing `reconciliation_discrepancy` rows and all field values remained 100% unchanged.
+    * Verified foreign keys, unique constraint `uk_discrepancy_run_observation`, and check constraints post-migration.
+  * **Atomic Transaction Rollback Integration Tests (`DiscrepancyRecorderIntegrationTest`)**:
+    * Utilized Spring Boot `@MockitoSpyBean` on `ReconciliationDiscrepancyObservationRepository` to inject deterministic runtime failures on observation persistence.
+    * Added `newDiscrepancyRollsBackAggregateWhenObservationSaveFails()`: verified that when observation save throws a runtime exception, the new discrepancy aggregate insert rolls back atomically (neither record exists in DB).
+    * Added `repeatDetectionRollsBackAggregateUpdateWhenObservationSaveFails()`: verified that when observation save throws on a repeat run detection, the discrepancy aggregate update rolls back completely (consecutive detections, latest run ID, last observed timestamp, and summary remain unchanged in DB; no observation row exists for the failed run).
+  * **Verification**:
+    * Executed targeted tests (`OperationsFlywayV17MigrationIntegrationTest`, `DiscrepancyRecorderIntegrationTest`) passing 7/7 tests with zero failures.
+    * Verified `OperationsModulithArchitectureTest` passing 7/7 tests.
+
+---
+
 ## 2026-10-28 — Phase 9B Checkpoint 1: Observation History & Persistence — *Implemented Locally (Pending Acceptance Review)*
 
 * **Scope**: Implemented durable observation history and persistence for operational reconciliation discrepancies in the `operations` module:
