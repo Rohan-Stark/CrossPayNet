@@ -4,15 +4,8 @@ import com.crosspaynet.banking.contracts.AccountId;
 import com.crosspaynet.banking.contracts.ReservationToken;
 import com.crosspaynet.common.money.Currency;
 import com.crosspaynet.common.money.Money;
-import com.crosspaynet.ledger.EntryDirection;
-import com.crosspaynet.ledger.LedgerAccountRef;
-import com.crosspaynet.ledger.LedgerAccountType;
-import com.crosspaynet.ledger.LedgerEntryView;
-import com.crosspaynet.ledger.LedgerPostingKey;
-import com.crosspaynet.ledger.LedgerService;
-import com.crosspaynet.ledger.LedgerTransactionId;
-import com.crosspaynet.ledger.LedgerTransactionType;
-import com.crosspaynet.ledger.LedgerTransactionView;
+import com.crosspaynet.ledger.contracts.LedgerPostingQueryPort;
+import com.crosspaynet.ledger.contracts.LedgerPostingView;
 import com.crosspaynet.operations.domain.DiscrepancyType;
 import com.crosspaynet.operations.domain.ReconciliationCheckStatus;
 import com.crosspaynet.operations.domain.ReconciliationRunId;
@@ -49,7 +42,7 @@ class SettlementLedgerInconsistencyCheckTest {
     private PaymentReconciliationPort paymentReconciliationPort;
 
     @Mock
-    private LedgerService ledgerService;
+    private LedgerPostingQueryPort ledgerPostingQueryPort;
 
     @Mock
     private DiscrepancyRecorder discrepancyRecorder;
@@ -65,7 +58,7 @@ class SettlementLedgerInconsistencyCheckTest {
 
         check = new SettlementLedgerInconsistencyCheck(
                 paymentReconciliationPort,
-                ledgerService,
+                ledgerPostingQueryPort,
                 discrepancyRecorder,
                 properties
         );
@@ -94,8 +87,8 @@ class SettlementLedgerInconsistencyCheckTest {
         when(paymentReconciliationPort.findPaymentsForReconciliation(any(), any(), any(), eq(50)))
                 .thenReturn(new PaymentReconciliationPage(List.of(payment), false, Optional.empty()));
 
-        LedgerPostingKey postingKey = LedgerPostingKey.of("PAYMENT_SETTLEMENT:" + paymentId.getValue());
-        when(ledgerService.findByPostingKey(postingKey)).thenReturn(Optional.empty());
+        String postingKey = "PAYMENT_SETTLEMENT:" + paymentId.getValue();
+        when(ledgerPostingQueryPort.findPostingByKey(postingKey)).thenReturn(Optional.empty());
 
         CheckExecutionOutcome outcome = check.execute(runId, now);
 
@@ -138,20 +131,9 @@ class SettlementLedgerInconsistencyCheckTest {
         when(paymentReconciliationPort.findPaymentsForReconciliation(any(), any(), any(), eq(50)))
                 .thenReturn(new PaymentReconciliationPage(List.of(payment), false, Optional.empty()));
 
-        LedgerPostingKey postingKey = LedgerPostingKey.of("PAYMENT_SETTLEMENT:" + paymentId.getValue());
-        LedgerTransactionView ledgerTx = new LedgerTransactionView(
-                LedgerTransactionId.generate(),
-                LedgerTransactionType.STANDARD,
-                postingKey,
-                new Currency("USD"),
-                ledgerAmount,
-                "EXT-REF",
-                "Settlement transaction",
-                null,
-                now.minus(10, ChronoUnit.MINUTES),
-                sampleEntries(ledgerAmount)
-        );
-        when(ledgerService.findByPostingKey(postingKey)).thenReturn(Optional.of(ledgerTx));
+        String postingKey = "PAYMENT_SETTLEMENT:" + paymentId.getValue();
+        LedgerPostingView postingView = new LedgerPostingView(UUID.randomUUID(), ledgerAmount);
+        when(ledgerPostingQueryPort.findPostingByKey(postingKey)).thenReturn(Optional.of(postingView));
 
         CheckExecutionOutcome outcome = check.execute(runId, now);
 
@@ -164,6 +146,52 @@ class SettlementLedgerInconsistencyCheckTest {
                 eq(DiscrepancyType.PAYMENT_LEDGER_BREAK),
                 eq(paymentId.getValue().toString()),
                 org.mockito.ArgumentMatchers.contains("amount/currency mismatch"),
+                any(),
+                eq(now)
+        );
+    }
+
+    @Test
+    void shouldDetectSettledPaymentWithTransactionIdMismatchInLedger() {
+        ReconciliationRunId runId = ReconciliationRunId.generate();
+        Instant now = Instant.now();
+        PaymentId paymentId = PaymentId.generate();
+        Money amount = new Money(new BigDecimal("500.00"), new Currency("USD"));
+        UUID recordedTxId = UUID.randomUUID();
+        UUID actualTxId = UUID.randomUUID();
+
+        PaymentReconciliationRecord payment = new PaymentReconciliationRecord(
+                paymentId,
+                PaymentStatus.SETTLED,
+                AccountId.generate(),
+                amount,
+                Optional.of(ReservationToken.generate()),
+                Optional.of("ROUTE-US"),
+                Optional.of("DISP-1"),
+                Optional.of(recordedTxId),
+                Optional.empty(),
+                now.minus(20, ChronoUnit.MINUTES),
+                now.minus(10, ChronoUnit.MINUTES)
+        );
+
+        when(paymentReconciliationPort.findPaymentsForReconciliation(any(), any(), any(), eq(50)))
+                .thenReturn(new PaymentReconciliationPage(List.of(payment), false, Optional.empty()));
+
+        String postingKey = "PAYMENT_SETTLEMENT:" + paymentId.getValue();
+        LedgerPostingView postingView = new LedgerPostingView(actualTxId, amount);
+        when(ledgerPostingQueryPort.findPostingByKey(postingKey)).thenReturn(Optional.of(postingView));
+
+        CheckExecutionOutcome outcome = check.execute(runId, now);
+
+        assertThat(outcome.status()).isEqualTo(ReconciliationCheckStatus.COMPLETED);
+        assertThat(outcome.itemsScanned()).isEqualTo(1);
+        assertThat(outcome.discrepanciesFound()).isEqualTo(1);
+
+        verify(discrepancyRecorder).recordDiscrepancy(
+                eq(runId),
+                eq(DiscrepancyType.PAYMENT_LEDGER_BREAK),
+                eq(paymentId.getValue().toString()),
+                org.mockito.ArgumentMatchers.contains("ledgerTransactionId mismatch"),
                 any(),
                 eq(now)
         );
@@ -194,32 +222,14 @@ class SettlementLedgerInconsistencyCheckTest {
         when(paymentReconciliationPort.findPaymentsForReconciliation(any(), any(), any(), eq(50)))
                 .thenReturn(new PaymentReconciliationPage(List.of(payment), false, Optional.empty()));
 
-        LedgerPostingKey postingKey = LedgerPostingKey.of("PAYMENT_SETTLEMENT:" + paymentId.getValue());
-        LedgerTransactionView ledgerTx = new LedgerTransactionView(
-                new LedgerTransactionId(txId),
-                LedgerTransactionType.STANDARD,
-                postingKey,
-                new Currency("USD"),
-                amount,
-                "EXT-REF",
-                "Settlement transaction",
-                null,
-                now.minus(10, ChronoUnit.MINUTES),
-                sampleEntries(amount)
-        );
-        when(ledgerService.findByPostingKey(postingKey)).thenReturn(Optional.of(ledgerTx));
+        String postingKey = "PAYMENT_SETTLEMENT:" + paymentId.getValue();
+        LedgerPostingView postingView = new LedgerPostingView(txId, amount);
+        when(ledgerPostingQueryPort.findPostingByKey(postingKey)).thenReturn(Optional.of(postingView));
 
         CheckExecutionOutcome outcome = check.execute(runId, now);
 
         assertThat(outcome.status()).isEqualTo(ReconciliationCheckStatus.COMPLETED);
         assertThat(outcome.itemsScanned()).isEqualTo(1);
         assertThat(outcome.discrepanciesFound()).isZero();
-    }
-
-    private List<LedgerEntryView> sampleEntries(Money amount) {
-        return List.of(
-                new LedgerEntryView(UUID.randomUUID(), 1, LedgerAccountRef.of(LedgerAccountType.BANKING_ACCOUNT, "SRC-1"), EntryDirection.DEBIT, amount),
-                new LedgerEntryView(UUID.randomUUID(), 2, LedgerAccountRef.of(LedgerAccountType.INTERNAL, "CLR-1"), EntryDirection.CREDIT, amount)
-        );
     }
 }

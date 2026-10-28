@@ -4,6 +4,30 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
+## 2026-10-28 — Phase 9A Checkpoint 3 Corrective Fixes: Ledger Query Contract Isolation & Module Boundary Tightening — *Implemented Locally (Pending Acceptance Review)*
+
+* **Scope**: Resolved module boundary violations in the `operations` module by isolating read-only Ledger access and pruning overly broad dependency declarations:
+  * **Narrow Read-Only Ledger Contract (`com.crosspaynet.ledger.contracts`)**:
+    * Created package `com.crosspaynet.ledger.contracts` with `@NamedInterface("contracts")`.
+    * Introduced `LedgerPostingQueryPort` with method `Optional<LedgerPostingView> findPostingByKey(String canonicalPostingKey)`.
+    * Introduced contract record `LedgerPostingView(UUID transactionId, Money totalAmount)` strictly exposing only the required data (transaction identifier and total money amount with currency).
+    * Updated `LedgerService` to implement `LedgerPostingQueryPort`, delegating internally to `findByPostingKey(LedgerPostingKey)` and enforcing canonical posting key domain validation (`LedgerPostingKey.of`) without duplicating persistence logic.
+    * Refactored `SettlementLedgerInconsistencyCheck` to inject `LedgerPostingQueryPort` instead of `LedgerService`, removing all imports and usage of root `com.crosspaynet.ledger` types.
+  * **Tightened Operations Module Boundaries (`com.crosspaynet.operations/package-info.java`)**:
+    * Removed broad `"ledger"` dependency, replacing it with `"ledger :: contracts"`.
+    * Removed redundant broad `"events"` dependency, retaining `"events :: contracts"`.
+    * Preserved explicitly required named contracts: `"payment :: contracts"`, `"banking :: contracts"`, `"ledger :: contracts"`, `"events :: contracts"`, `"messaging :: contracts"`, `"common"`, and `"common :: money"`.
+  * **Architectural Invariant Enforcement (`OperationsModulithArchitectureTest`)**:
+    * Added ArchUnit rule `operationsMustNotDependOnLedgerRootPackage` ensuring `operations` has zero compile-time references to root `com.crosspaynet.ledger` or mutative ledger APIs (`postTransaction`, `reverseTransaction`).
+    * Added ArchUnit rule `operationsMustNotDependOnEventsRootPackage` ensuring `operations` only references `events :: contracts`.
+    * Verified Spring Modulith boundary verification and database isolation rules.
+  * **Tests & Verification**:
+    * Added focused unit test suite `LedgerPostingQueryUnitTest` covering posting lookup, transaction ID and amount mapping, absent posting handling, and Ledger domain validation error paths (null, blank, disallowed characters, excessive length, reserved prefix).
+    * Updated `SettlementLedgerInconsistencyCheckTest` to verify all 4 settlement reconciliation scenarios against `LedgerPostingQueryPort`.
+    * Ran full unit, architecture, and PostgreSQL Testcontainers integration test suites (196 unit/architecture tests and 28 PostgreSQL integration tests passed with zero failures).
+
+---
+
 ## 2026-10-28 — Phase 9A Checkpoint 3 Corrective Fixes: Banking Contract & Abandoned Run Recovery — *Implemented Locally (Pending Acceptance Review)*
 
 * **Scope**: Addressed the two acceptance review findings for Checkpoint 3:

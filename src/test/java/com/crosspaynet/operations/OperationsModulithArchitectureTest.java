@@ -51,6 +51,26 @@ class OperationsModulithArchitectureTest {
     }
 
     @Test
+    void operationsMustNotDependOnLedgerRootPackage() {
+        noClasses()
+                .that().resideInAPackage("com.crosspaynet.operations..")
+                .should().dependOnClassesThat()
+                .resideInAPackage("com.crosspaynet.ledger")
+                .because("Operations must depend only on named interface 'ledger :: contracts' (e.g. LedgerPostingQueryPort) and never on LedgerService or root ledger package")
+                .check(OPERATIONS_CLASSES);
+    }
+
+    @Test
+    void operationsMustNotDependOnEventsRootPackage() {
+        noClasses()
+                .that().resideInAPackage("com.crosspaynet.operations..")
+                .should().dependOnClassesThat()
+                .resideInAPackage("com.crosspaynet.events")
+                .because("Operations must depend only on named interface 'events :: contracts' (e.g. EventPublicationQueryPort) and never on root events package")
+                .check(OPERATIONS_CLASSES);
+    }
+
+    @Test
     void operationsMustNotDirectlyAccessOtherModulesInternalPersistence() {
         noClasses()
                 .that().resideInAPackage("com.crosspaynet.operations..")

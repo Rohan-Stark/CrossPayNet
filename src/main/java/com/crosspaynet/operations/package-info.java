@@ -4,8 +4,7 @@
                 "common :: money",
                 "payment :: contracts",
                 "banking :: contracts",
-                "ledger",
-                "events",
+                "ledger :: contracts",
                 "events :: contracts",
                 "messaging :: contracts"
         }

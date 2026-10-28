@@ -1,6 +1,8 @@
 package com.crosspaynet.ledger;
 
 import com.crosspaynet.common.money.Currency;
+import com.crosspaynet.ledger.contracts.LedgerPostingQueryPort;
+import com.crosspaynet.ledger.contracts.LedgerPostingView;
 import com.crosspaynet.ledger.domain.LedgerEntry;
 import com.crosspaynet.ledger.domain.LedgerTransaction;
 import com.crosspaynet.ledger.infrastructure.persistence.LedgerTransactionEntity;
@@ -23,7 +25,7 @@ import java.util.UUID;
  * internal domain or persistence types across module boundaries.
  */
 @Service
-public class LedgerService {
+public class LedgerService implements LedgerPostingQueryPort {
 
     private final LedgerTransactionRepository repository;
     private final LedgerTransactionMapper mapper;
@@ -171,6 +173,24 @@ public class LedgerService {
         return repository.findByPostingKey(postingKey.getValue())
                 .map(mapper::toDomain)
                 .map(LedgerTransaction::toView);
+    }
+
+    /**
+     * Read-only implementation of {@link LedgerPostingQueryPort} for looking up a ledger posting
+     * by its canonical posting key across module boundaries.
+     */
+    @Override
+    @Transactional(propagation = Propagation.SUPPORTS, readOnly = true)
+    public Optional<LedgerPostingView> findPostingByKey(String canonicalPostingKey) {
+        if (canonicalPostingKey == null) {
+            throw new LedgerValidationException("canonicalPostingKey cannot be null.");
+        }
+        LedgerPostingKey postingKey = LedgerPostingKey.of(canonicalPostingKey);
+        return findByPostingKey(postingKey)
+                .map(tx -> new LedgerPostingView(
+                        tx.transactionId().getValue(),
+                        tx.totalAmount()
+                ));
     }
 
     private int insertHeader(LedgerTransaction transaction) {

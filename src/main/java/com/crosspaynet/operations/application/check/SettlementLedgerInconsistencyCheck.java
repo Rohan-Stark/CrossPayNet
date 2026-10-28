@@ -1,8 +1,7 @@
 package com.crosspaynet.operations.application.check;
 
-import com.crosspaynet.ledger.LedgerPostingKey;
-import com.crosspaynet.ledger.LedgerService;
-import com.crosspaynet.ledger.LedgerTransactionView;
+import com.crosspaynet.ledger.contracts.LedgerPostingQueryPort;
+import com.crosspaynet.ledger.contracts.LedgerPostingView;
 import com.crosspaynet.operations.domain.DiscrepancyType;
 import com.crosspaynet.operations.domain.ReconciliationRunId;
 import com.crosspaynet.operations.infrastructure.configuration.OperationsReconciliationProperties;
@@ -31,18 +30,18 @@ public class SettlementLedgerInconsistencyCheck implements ReconciliationCheckEx
     private static final Set<PaymentStatus> SETTLED_STATUS = Set.of(PaymentStatus.SETTLED);
 
     private final PaymentReconciliationPort paymentReconciliationPort;
-    private final LedgerService ledgerService;
+    private final LedgerPostingQueryPort ledgerPostingQueryPort;
     private final DiscrepancyRecorder discrepancyRecorder;
     private final OperationsReconciliationProperties properties;
 
     public SettlementLedgerInconsistencyCheck(
             PaymentReconciliationPort paymentReconciliationPort,
-            LedgerService ledgerService,
+            LedgerPostingQueryPort ledgerPostingQueryPort,
             DiscrepancyRecorder discrepancyRecorder,
             OperationsReconciliationProperties properties
     ) {
         this.paymentReconciliationPort = Objects.requireNonNull(paymentReconciliationPort, "paymentReconciliationPort cannot be null.");
-        this.ledgerService = Objects.requireNonNull(ledgerService, "ledgerService cannot be null.");
+        this.ledgerPostingQueryPort = Objects.requireNonNull(ledgerPostingQueryPort, "ledgerPostingQueryPort cannot be null.");
         this.discrepancyRecorder = Objects.requireNonNull(discrepancyRecorder, "discrepancyRecorder cannot be null.");
         this.properties = Objects.requireNonNull(properties, "properties cannot be null.");
     }
@@ -90,14 +89,14 @@ public class SettlementLedgerInconsistencyCheck implements ReconciliationCheckEx
 
     private boolean inspectSettlementLedger(ReconciliationRunId runId, PaymentReconciliationRecord payment, Instant observedAt) {
         String entityId = payment.paymentId().getValue().toString();
-        LedgerPostingKey postingKey = LedgerPostingKey.of(SETTLEMENT_POSTING_KEY_PREFIX + entityId);
-        Optional<LedgerTransactionView> transactionOpt = ledgerService.findByPostingKey(postingKey);
+        String postingKey = SETTLEMENT_POSTING_KEY_PREFIX + entityId;
+        Optional<LedgerPostingView> transactionOpt = ledgerPostingQueryPort.findPostingByKey(postingKey);
 
         if (transactionOpt.isEmpty()) {
-            String summary = "Settled payment has no matching ledger transaction with posting key " + postingKey.getValue();
+            String summary = "Settled payment has no matching ledger transaction with posting key " + postingKey;
             String details = String.format(
                     "{\"paymentId\":\"%s\",\"expectedPostingKey\":\"%s\",\"issue\":\"POSTING_KEY_NOT_FOUND\"}",
-                    entityId, postingKey.getValue()
+                    entityId, postingKey
             );
             discrepancyRecorder.recordDiscrepancy(
                     runId, DiscrepancyType.PAYMENT_LEDGER_BREAK, entityId, summary, details, observedAt
@@ -105,7 +104,7 @@ public class SettlementLedgerInconsistencyCheck implements ReconciliationCheckEx
             return true;
         }
 
-        LedgerTransactionView transaction = transactionOpt.get();
+        LedgerPostingView transaction = transactionOpt.get();
 
         if (!transaction.totalAmount().equals(payment.amount())) {
             String summary = String.format(
@@ -114,7 +113,7 @@ public class SettlementLedgerInconsistencyCheck implements ReconciliationCheckEx
             );
             String details = String.format(
                     "{\"paymentId\":\"%s\",\"expectedPostingKey\":\"%s\",\"expectedAmount\":%s,\"expectedCurrency\":\"%s\",\"actualAmount\":%s,\"actualCurrency\":\"%s\",\"issue\":\"AMOUNT_CURRENCY_MISMATCH\"}",
-                    entityId, postingKey.getValue(),
+                    entityId, postingKey,
                     payment.amount().getAmount(), payment.amount().getCurrency().getCode(),
                     transaction.totalAmount().getAmount(), transaction.totalAmount().getCurrency().getCode()
             );
@@ -125,14 +124,14 @@ public class SettlementLedgerInconsistencyCheck implements ReconciliationCheckEx
         }
 
         Optional<UUID> paymentTxIdOpt = payment.ledgerTransactionId();
-        if (paymentTxIdOpt.isPresent() && !paymentTxIdOpt.get().equals(transaction.transactionId().getValue())) {
+        if (paymentTxIdOpt.isPresent() && !paymentTxIdOpt.get().equals(transaction.transactionId())) {
             String summary = String.format(
                     "Settled payment ledgerTransactionId mismatch: payment has %s, ledger transaction has %s",
-                    paymentTxIdOpt.get(), transaction.transactionId().getValue()
+                    paymentTxIdOpt.get(), transaction.transactionId()
             );
             String details = String.format(
                     "{\"paymentId\":\"%s\",\"expectedPostingKey\":\"%s\",\"recordedTransactionId\":\"%s\",\"actualTransactionId\":\"%s\",\"issue\":\"TRANSACTION_ID_MISMATCH\"}",
-                    entityId, postingKey.getValue(), paymentTxIdOpt.get(), transaction.transactionId().getValue()
+                    entityId, postingKey, paymentTxIdOpt.get(), transaction.transactionId()
             );
             discrepancyRecorder.recordDiscrepancy(
                     runId, DiscrepancyType.PAYMENT_LEDGER_BREAK, entityId, summary, details, observedAt
