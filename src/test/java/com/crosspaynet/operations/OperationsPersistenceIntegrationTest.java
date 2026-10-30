@@ -27,6 +27,9 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -418,5 +421,71 @@ class OperationsPersistenceIntegrationTest {
         assertThat(obsB.get(1).getProvenance()).isEqualTo("LEGACY_RECONSTRUCTED");
         assertThat(obsB.get(1).getStatusAtObservation()).isEqualTo("ACKNOWLEDGED");
         assertThat(obsB.get(1).getDetails()).isEqualTo("{\"v\": 2}");
+    }
+
+    @Test
+    void shouldFindObservationsByDiscrepancyIdWithPaginationAndChronologicalOrder() {
+        Instant t0 = Instant.now().minus(2, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
+        ReconciliationRunId run1 = ReconciliationRunId.generate();
+        ReconciliationRunId run2 = ReconciliationRunId.generate();
+        ReconciliationRunId run3 = ReconciliationRunId.generate();
+        runRepository.saveAndFlush(operationsMapper.toEntity(ReconciliationRun.start(run1, "test", t0)));
+        runRepository.saveAndFlush(operationsMapper.toEntity(ReconciliationRun.start(run2, "test", t0.plus(1, ChronoUnit.MINUTES))));
+        runRepository.saveAndFlush(operationsMapper.toEntity(ReconciliationRun.start(run3, "test", t0.plus(2, ChronoUnit.MINUTES))));
+
+        DiscrepancyId disc1 = DiscrepancyId.generate();
+        DiscrepancyId disc2 = DiscrepancyId.generate();
+
+        ReconciliationDiscrepancy discrepancy1 = ReconciliationDiscrepancy.create(
+                disc1, DiscrepancyKey.of(DiscrepancyType.PAYMENT_LEDGER_BREAK, "P-101"), run1,
+                DiscrepancyType.PAYMENT_LEDGER_BREAK, "P-101", "Summary 1", "{}", t0);
+        ReconciliationDiscrepancy discrepancy2 = ReconciliationDiscrepancy.create(
+                disc2, DiscrepancyKey.of(DiscrepancyType.PAYMENT_LEDGER_BREAK, "P-102"), run1,
+                DiscrepancyType.PAYMENT_LEDGER_BREAK, "P-102", "Summary 2", "{}", t0);
+
+        discrepancyRepository.saveAndFlush(operationsMapper.toEntity(discrepancy1));
+        discrepancyRepository.saveAndFlush(operationsMapper.toEntity(discrepancy2));
+
+        // Insert observations for disc1 across run1, run2, run3 at t0, t0 + 1m, t0 + 2m
+        UUID obs1_1 = UUID.randomUUID();
+        UUID obs1_2 = UUID.randomUUID();
+        UUID obs1_3 = UUID.randomUUID();
+
+        observationRepository.saveAndFlush(new ReconciliationDiscrepancyObservationEntity(
+                obs1_1, disc1.getValue(), run1.getValue(), "PAYMENT_LEDGER_BREAK", "OPEN",
+                "Obs 1", "{}", t0, "LIVE", t0));
+        observationRepository.saveAndFlush(new ReconciliationDiscrepancyObservationEntity(
+                obs1_2, disc1.getValue(), run2.getValue(), "PAYMENT_LEDGER_BREAK", "OPEN",
+                "Obs 2", null, t0.plus(1, ChronoUnit.MINUTES), "LEGACY_RECONSTRUCTED", t0.plus(1, ChronoUnit.MINUTES)));
+        observationRepository.saveAndFlush(new ReconciliationDiscrepancyObservationEntity(
+                obs1_3, disc1.getValue(), run3.getValue(), "PAYMENT_LEDGER_BREAK", "RESOLVED_EXTERNALLY",
+                "Obs 3", "{\"resolved\": true}", t0.plus(2, ChronoUnit.MINUTES), "LIVE", t0.plus(2, ChronoUnit.MINUTES)));
+
+        // Insert observation for disc2
+        observationRepository.saveAndFlush(new ReconciliationDiscrepancyObservationEntity(
+                UUID.randomUUID(), disc2.getValue(), run1.getValue(), "PAYMENT_LEDGER_BREAK", "OPEN",
+                "Obs for disc2", "{}", t0, "LIVE", t0));
+
+        // Test Page 0 (size 2)
+        Page<ReconciliationDiscrepancyObservationEntity> page0 = observationRepository.findByDiscrepancyId(
+                disc1.getValue(),
+                PageRequest.of(0, 2, Sort.by(Sort.Direction.ASC, "observedAt", "observationId"))
+        );
+        assertThat(page0.getTotalElements()).isEqualTo(3);
+        assertThat(page0.getTotalPages()).isEqualTo(2);
+        assertThat(page0.getContent()).hasSize(2);
+        assertThat(page0.getContent().get(0).getObservationId()).isEqualTo(obs1_1);
+        assertThat(page0.getContent().get(1).getObservationId()).isEqualTo(obs1_2);
+        assertThat(page0.getContent().get(1).getDetails()).isNull();
+        assertThat(page0.getContent().get(1).getProvenance()).isEqualTo("LEGACY_RECONSTRUCTED");
+
+        // Test Page 1 (size 2)
+        Page<ReconciliationDiscrepancyObservationEntity> page1 = observationRepository.findByDiscrepancyId(
+                disc1.getValue(),
+                PageRequest.of(1, 2, Sort.by(Sort.Direction.ASC, "observedAt", "observationId"))
+        );
+        assertThat(page1.getContent()).hasSize(1);
+        assertThat(page1.getContent().get(0).getObservationId()).isEqualTo(obs1_3);
+        assertThat(page1.getContent().get(0).getStatusAtObservation()).isEqualTo("RESOLVED_EXTERNALLY");
     }
 }

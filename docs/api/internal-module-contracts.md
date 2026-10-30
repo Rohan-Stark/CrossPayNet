@@ -330,6 +330,28 @@ Secure operational reconciliation and discrepancy management endpoints exposed u
   * `404 Not Found`: Discrepancy not found.
   * `400 Bad Request`: Malformed discrepancy UUID.
 
+### `GET /api/v1/operations/reconciliation/discrepancies/{discrepancyId}/observations`
+* **Purpose**: Retrieve historical observation audit trail for an individual discrepancy across all reconciliation runs.
+* **Security & Authorization**: Protected by `@PreAuthorize("hasAnyRole('OPERATIONS', 'ADMIN')")`. Rejects unauthenticated callers with `401 Unauthorized`; callers without `ROLE_OPERATIONS` or `ROLE_ADMIN` receive `403 Forbidden`.
+* **Parameters**:
+  * `page` (default: 0, must be >= 0).
+  * `size` (default: 20, between 1 and 100).
+* **Responses**:
+  * `200 OK`: `PagedResponse<ReconciliationDiscrepancyObservationResponse>` with deterministic chronological ordering (`observedAt ASC, observationId ASC`). If the discrepancy exists but has zero observations, returns an empty content list (`content: []`, `totalElements: 0`, `totalPages: 0`).
+  * `400 Bad Request`: Malformed discrepancy UUID or out-of-bounds pagination parameters (`page < 0`, `size <= 0` or `size > 100`).
+  * `404 Not Found`: Discrepancy does not exist.
+* **Attributes**:
+  * `observationId`: UUID
+  * `discrepancyId`: UUID
+  * `runId`: UUID
+  * `discrepancyType`: String enum (`STALE_IN_FLIGHT_WORKFLOW`, `RESERVATION_PAYMENT_MISMATCH`, `PAYMENT_LEDGER_BREAK`, `INCOMPLETE_EVENT_PUBLICATION`)
+  * `statusAtObservation`: String enum (`OPEN`, `RESOLVED_EXTERNALLY`, `ACKNOWLEDGED`)
+  * `summary`: String (VARCHAR(500))
+  * `details`: String JSON representation (omitted or null if absent)
+  * `observedAt`: Instant (ISO-8601)
+  * `provenance`: `LIVE` or `LEGACY_RECONSTRUCTED`
+  * `createdAt`: Instant (ISO-8601)
+
 ---
 
 ## 4. Operational Discrepancy Observation History (Phase 9B Checkpoint 1)

@@ -69,6 +69,18 @@ public interface ReconciliationService {
     List<ReconciliationDiscrepancyView> findDiscrepanciesForRun(ReconciliationRunId runId);
 
     /**
+     * Lists the historical observations recorded for an operational discrepancy using bounded
+     * pagination in chronological order.
+     *
+     * @param discrepancyId discrepancy identifier
+     * @param page zero-based page index (must be >= 0)
+     * @param size maximum records per page (between 1 and 100)
+     * @return paginated result of discrepancy observation views
+     * @throws com.crosspaynet.operations.domain.OperationsNotFoundException if the discrepancy does not exist
+     */
+    PagedResult<ReconciliationDiscrepancyObservationView> findObservations(DiscrepancyId discrepancyId, int page, int size);
+
+    /**
      * Returns the latest reconciliation run if one has been executed.
      *
      * @return optional containing the latest run view

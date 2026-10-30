@@ -3,6 +3,7 @@ package com.crosspaynet.operations.infrastructure.web;
 import com.crosspaynet.operations.contracts.DiscrepancyQueryFilter;
 import com.crosspaynet.operations.contracts.PagedResult;
 import com.crosspaynet.operations.contracts.ReconciliationCheckExecutionView;
+import com.crosspaynet.operations.contracts.ReconciliationDiscrepancyObservationView;
 import com.crosspaynet.operations.contracts.ReconciliationDiscrepancyView;
 import com.crosspaynet.operations.contracts.ReconciliationRunView;
 import com.crosspaynet.operations.contracts.ReconciliationService;
@@ -156,5 +157,33 @@ public class ReconciliationController {
                 .orElseThrow(() -> new OperationsNotFoundException("Discrepancy not found: " + discrepancyId));
 
         return ResponseEntity.ok(ReconciliationDiscrepancyResponse.from(discrepancy));
+    }
+
+    /**
+     * Retrieves historical observations recorded for an individual reconciliation discrepancy.
+     *
+     * <p>Provides paginated observation history in chronological order. Returns 404 when the
+     * discrepancy does not exist, and an empty paginated result if the discrepancy exists but has
+     * no observations.</p>
+     */
+    @GetMapping("/discrepancies/{discrepancyId}/observations")
+    public ResponseEntity<PagedResponse<ReconciliationDiscrepancyObservationResponse>> listObservations(
+            @PathVariable("discrepancyId") UUID discrepancyId,
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "20") int size
+    ) {
+        DiscrepancyId id = DiscrepancyId.of(discrepancyId);
+        PagedResult<ReconciliationDiscrepancyObservationView> result = reconciliationService.findObservations(id, page, size);
+        List<ReconciliationDiscrepancyObservationResponse> content = result.content().stream()
+                .map(ReconciliationDiscrepancyObservationResponse::from)
+                .toList();
+
+        return ResponseEntity.ok(new PagedResponse<>(
+                content,
+                result.page(),
+                result.size(),
+                result.totalElements(),
+                result.totalPages()
+        ));
     }
 }

@@ -1,6 +1,7 @@
 package com.crosspaynet.operations.infrastructure.persistence;
 
 import com.crosspaynet.operations.contracts.ReconciliationCheckExecutionView;
+import com.crosspaynet.operations.contracts.ReconciliationDiscrepancyObservationView;
 import com.crosspaynet.operations.contracts.ReconciliationDiscrepancyView;
 import com.crosspaynet.operations.contracts.ReconciliationRunView;
 import com.crosspaynet.operations.domain.DiscrepancyId;
@@ -246,5 +247,26 @@ public class OperationsMapper {
                 ObservationProvenance.valueOf(entity.getProvenance()),
                 entity.getCreatedAt()
         );
+    }
+
+    public ReconciliationDiscrepancyObservationView toView(ReconciliationDiscrepancyObservation domain) {
+        if (domain == null) return null;
+        return new ReconciliationDiscrepancyObservationView(
+                domain.getObservationId(),
+                domain.getDiscrepancyId(),
+                domain.getRunId(),
+                domain.getDiscrepancyType(),
+                domain.getStatusAtObservation(),
+                domain.getSummary(),
+                domain.getDetails(),
+                domain.getObservedAt(),
+                domain.getProvenance(),
+                domain.getCreatedAt()
+        );
+    }
+
+    public ReconciliationDiscrepancyObservationView toView(ReconciliationDiscrepancyObservationEntity entity) {
+        if (entity == null) return null;
+        return toView(toDomain(entity));
     }
 }

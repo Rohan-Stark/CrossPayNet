@@ -4,6 +4,40 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
+## 2026-10-28 — Phase 9B Checkpoint 3: Discrepancy Observation History REST API — *Implemented Locally (Pending Acceptance Review)*
+
+* **Scope**: Exposed historical discrepancy observations through a secured, read-only REST endpoint:
+  * **Target Endpoint**: `GET /api/v1/operations/reconciliation/discrepancies/{discrepancyId}/observations`
+  * **Security & Authorization**:
+    * Protected by `@PreAuthorize("hasAnyRole('OPERATIONS', 'ADMIN')")`.
+    * Unauthenticated requests are rejected with `401 Unauthorized`.
+    * Authenticated callers lacking `ROLE_OPERATIONS` or `ROLE_ADMIN` receive `403 Forbidden`.
+  * **Contracts & DTOs**:
+    * Created `ReconciliationDiscrepancyObservationView`: Immutable record in `com.crosspaynet.operations.contracts` capturing observation metadata, status, summary, details, timestamps, and provenance (`LIVE`, `LEGACY_RECONSTRUCTED`).
+    * Added `findObservations(DiscrepancyId discrepancyId, int page, int size)` to `ReconciliationService` contract returning `PagedResult<ReconciliationDiscrepancyObservationView>`.
+    * Created `ReconciliationDiscrepancyObservationResponse` in `com.crosspaynet.operations.infrastructure.web` with static factory `from(ReconciliationDiscrepancyObservationView)`. Preserves `null` details when absent and keeps provenance transparent without exposing JPA entities.
+  * **Persistence & Mapping (`operations`)**:
+    * Extended `ReconciliationDiscrepancyObservationRepository` with `Page<ReconciliationDiscrepancyObservationEntity> findByDiscrepancyId(UUID discrepancyId, Pageable pageable)` delegating pagination and sorting directly to PostgreSQL (`LIMIT` / `OFFSET` / `ORDER BY`).
+    * Added mapping methods `toView(ReconciliationDiscrepancyObservation)` and `toView(ReconciliationDiscrepancyObservationEntity)` in `OperationsMapper`.
+  * **Application Service (`ReconciliationServiceImpl`)**:
+    * Implemented `findObservations(DiscrepancyId discrepancyId, int page, int size)`:
+      * Validates pagination parameters: `page >= 0`, `size >= 1 && size <= 100`.
+      * Validates discrepancy existence via `discrepancyRepository.existsById(discrepancyId.getValue())`. Throws `OperationsNotFoundException` (`404 Not Found`) if the discrepancy does not exist.
+      * If discrepancy exists, queries observations with deterministic sort `Sort.by(Sort.Direction.ASC, "observedAt", "observationId")`.
+      * Returns empty `PagedResult` (`totalElements: 0`, `totalPages: 0`, `content: []`) when the discrepancy exists but has zero observations.
+  * **Web Controller (`ReconciliationController`)**:
+    * Exposed `@GetMapping("/discrepancies/{discrepancyId}/observations")`.
+    * Validates UUID string and maps bad parameter exceptions to `400 Bad Request` via existing `GlobalExceptionHandler`.
+    * Enforces standard pagination default (`page = 0, size = 20`).
+  * **Tests & Verification**:
+    * `ReconciliationServiceTest`: 3 unit tests verifying successful retrieval and mapping, `OperationsNotFoundException` when discrepancy does not exist, and argument validation on negative page or out-of-bounds size.
+    * `ReconciliationControllerSecurityTest`: 6 tests verifying 401 for unauthenticated calls, 403 for non-operations roles (`ROLE_CUSTOMER`), 200 for `ROLE_OPERATIONS`, 200 for `ROLE_ADMIN`, 400 for malformed UUID, and 404 for non-existent discrepancy.
+    * `ReconciliationControllerIntegrationTest`: 3 Spring Web MVC + PostgreSQL Testcontainers tests verifying full pagination across multiple pages with deterministic chronological ordering, preservation of null details, preservation of `LEGACY_RECONSTRUCTED` provenance, empty paginated response when discrepancy has no observations, and 404 for unknown discrepancy.
+    * `OperationsPersistenceIntegrationTest`: Verified Spring Data JPA repository query execution, total count calculation, and multi-page pagination with sorting against real PostgreSQL 18 container.
+    * Ran complete Operations test suite (108 tests passing, 0 failures, 0 errors, 0 skipped) and `OperationsModulithArchitectureTest`.
+
+---
+
 ## 2026-10-28 — Phase 9B Checkpoint 2: Production-Practical Scheduled Reconciliation with ShedLock — *Implemented Locally (Pending Acceptance Review)*
 
 * **Scope**: Implemented periodic background operational reconciliation with multi-instance concurrency protection:

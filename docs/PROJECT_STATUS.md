@@ -1,7 +1,7 @@
 # Project Status
 
 Current Phase: Phase 9B — Scheduled Reconciliation & Historical Observation Tracking
-Current Subphase: Checkpoint 2 Implemented Locally (Scheduled Reconciliation with ShedLock)
+Current Subphase: Checkpoint 3 Implemented Locally (Discrepancy Observation History REST API)
 
 ## Completed Phases
 * Phase 0 — Engineering Constitution
@@ -58,8 +58,10 @@ Current Subphase: Checkpoint 2 Implemented Locally (Scheduled Reconciliation wit
 
   * **Checkpoint 2 (Scheduled Reconciliation with ShedLock)**: Spring @Scheduled + ShedLock with PostgreSQL JDBC lock provider (operations.shedlock, V18), opt-in configurable scheduling (crosspaynet.operations.reconciliation.scheduling.*), graceful OperationsConflictException handling, and multi-instance concurrency protection.
 
+  * **Checkpoint 3 (Discrepancy Observation History REST API)**: Secured read-only REST endpoint `GET /api/v1/operations/reconciliation/discrepancies/{discrepancyId}/observations` protected with `@PreAuthorize("hasAnyRole('OPERATIONS', 'ADMIN')")`, returning chronological audit observations (`observedAt ASC, observationId ASC`), bounded pagination (`page >= 0`, `size 1..100`), discrepancy existence verification (`404 Not Found` for unknown discrepancy; `200 OK` empty list for existing discrepancy with zero observations), DTO encapsulation (`ReconciliationDiscrepancyObservationResponse`), and preserving null details and historical provenance (`LIVE` / `LEGACY_RECONSTRUCTED`).
+
 ## Current/Next Phase
-* **Phase 9B Checkpoint 3 — Observation History REST API & Query Evolution** ▶ NEXT
+* **Phase 9B Checkpoint 3 — Discrepancy Observation History REST API** (Implemented locally, awaiting review)
 
 ## Upcoming Phases
 * Phase 9 — Observability & Operations

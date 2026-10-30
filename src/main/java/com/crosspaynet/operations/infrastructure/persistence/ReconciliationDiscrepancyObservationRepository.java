@@ -1,5 +1,7 @@
 package com.crosspaynet.operations.infrastructure.persistence;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -12,6 +14,8 @@ public interface ReconciliationDiscrepancyObservationRepository extends JpaRepos
     boolean existsByDiscrepancyIdAndRunId(UUID discrepancyId, UUID runId);
 
     List<ReconciliationDiscrepancyObservationEntity> findByDiscrepancyIdOrderByObservedAtAsc(UUID discrepancyId);
+
+    Page<ReconciliationDiscrepancyObservationEntity> findByDiscrepancyId(UUID discrepancyId, Pageable pageable);
 
     List<ReconciliationDiscrepancyObservationEntity> findByRunId(UUID runId);
 }

@@ -368,4 +368,189 @@ class ReconciliationControllerIntegrationTest {
                 .andExpect(jsonPath("$.content", hasSize(1)))
                 .andExpect(jsonPath("$.content[0].discrepancyId", is(disc1Id.getValue().toString())));
     }
+
+    @Test
+    @DisplayName("GET /discrepancies/{discrepancyId}/observations returns paginated observation history in chronological order")
+    void shouldRetrieveObservationsForDiscrepancyWithPaginationAndChronologicalOrder() throws Exception {
+        Instant t0 = Instant.now().minus(3, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
+        Instant t1 = Instant.now().minus(2, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
+        Instant t2 = Instant.now().minus(1, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
+
+        ReconciliationRunId run1 = ReconciliationRunId.generate();
+        ReconciliationRunId run2 = ReconciliationRunId.generate();
+        ReconciliationRunId run3 = ReconciliationRunId.generate();
+        runRepository.saveAndFlush(operationsMapper.toEntity(ReconciliationRun.start(run1, "ops", t0)));
+        runRepository.saveAndFlush(operationsMapper.toEntity(ReconciliationRun.start(run2, "ops", t1)));
+        runRepository.saveAndFlush(operationsMapper.toEntity(ReconciliationRun.start(run3, "ops", t2)));
+
+        DiscrepancyId discId = DiscrepancyId.generate();
+        DiscrepancyKey key = DiscrepancyKey.of(DiscrepancyType.PAYMENT_LEDGER_BREAK, "HIST-DISC-101");
+        ReconciliationDiscrepancy discrepancy = ReconciliationDiscrepancy.create(
+                discId, key, run1, DiscrepancyType.PAYMENT_LEDGER_BREAK, "HIST-DISC-101",
+                "Initial break", "{\"initial\": true}", t0
+        );
+        discrepancy.recordRepeatObservation(run2, "Updated break", null, t1);
+        discrepancy.recordRepeatObservation(run3, "Third break", "{\"cleared\": true}", t2);
+        discrepancyRepository.saveAndFlush(operationsMapper.toEntity(discrepancy));
+
+        UUID obs1Id = UUID.randomUUID();
+        UUID obs2Id = UUID.randomUUID();
+        UUID obs3Id = UUID.randomUUID();
+
+        observationRepository.saveAndFlush(operationsMapper.toEntity(new ReconciliationDiscrepancyObservation(
+                DiscrepancyObservationId.of(obs1Id), discId, run1,
+                DiscrepancyType.PAYMENT_LEDGER_BREAK, DiscrepancyStatus.OPEN,
+                "First observation", "{\"initial\": true}", t0, ObservationProvenance.LIVE, t0
+        )));
+        observationRepository.saveAndFlush(operationsMapper.toEntity(new ReconciliationDiscrepancyObservation(
+                DiscrepancyObservationId.of(obs2Id), discId, run2,
+                DiscrepancyType.PAYMENT_LEDGER_BREAK, DiscrepancyStatus.OPEN,
+                "Second observation", null, t1, ObservationProvenance.LEGACY_RECONSTRUCTED, t1
+        )));
+        observationRepository.saveAndFlush(operationsMapper.toEntity(new ReconciliationDiscrepancyObservation(
+                DiscrepancyObservationId.of(obs3Id), discId, run3,
+                DiscrepancyType.PAYMENT_LEDGER_BREAK, DiscrepancyStatus.RESOLVED_EXTERNALLY,
+                "Third observation", "{\"cleared\": true}", t2, ObservationProvenance.LIVE, t2
+        )));
+
+        // Page 0 (size 2): Should return Obs 1 and Obs 2 in chronological order
+        mockMvc.perform(get(BASE_URL + "/discrepancies/" + discId.getValue() + "/observations?page=0&size=2")
+                        .with(user("ops").roles("OPERATIONS")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page", is(0)))
+                .andExpect(jsonPath("$.size", is(2)))
+                .andExpect(jsonPath("$.totalElements", is(3)))
+                .andExpect(jsonPath("$.totalPages", is(2)))
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                // Obs 1
+                .andExpect(jsonPath("$.content[0].observationId", is(obs1Id.toString())))
+                .andExpect(jsonPath("$.content[0].discrepancyId", is(discId.getValue().toString())))
+                .andExpect(jsonPath("$.content[0].runId", is(run1.getValue().toString())))
+                .andExpect(jsonPath("$.content[0].discrepancyType", is("PAYMENT_LEDGER_BREAK")))
+                .andExpect(jsonPath("$.content[0].statusAtObservation", is("OPEN")))
+                .andExpect(jsonPath("$.content[0].summary", is("First observation")))
+                .andExpect(jsonPath("$.content[0].details", is("{\"initial\": true}")))
+                .andExpect(jsonPath("$.content[0].provenance", is("LIVE")))
+                // Obs 2 (null details preserved, LEGACY_RECONSTRUCTED preserved)
+                .andExpect(jsonPath("$.content[1].observationId", is(obs2Id.toString())))
+                .andExpect(jsonPath("$.content[1].details").doesNotExist())
+                .andExpect(jsonPath("$.content[1].provenance", is("LEGACY_RECONSTRUCTED")));
+
+        // Page 1 (size 2): Should return Obs 3
+        mockMvc.perform(get(BASE_URL + "/discrepancies/" + discId.getValue() + "/observations?page=1&size=2")
+                        .with(user("ops").roles("OPERATIONS")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page", is(1)))
+                .andExpect(jsonPath("$.size", is(2)))
+                .andExpect(jsonPath("$.content", hasSize(1)))
+                .andExpect(jsonPath("$.content[0].observationId", is(obs3Id.toString())))
+                .andExpect(jsonPath("$.content[0].statusAtObservation", is("RESOLVED_EXTERNALLY")));
+    }
+
+    @Test
+    @DisplayName("GET /discrepancies/{discrepancyId}/observations returns empty page when discrepancy exists without observations")
+    void shouldReturnEmptyPaginatedResponseWhenDiscrepancyHasNoObservations() throws Exception {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        ReconciliationRunId runId = ReconciliationRunId.generate();
+        runRepository.saveAndFlush(operationsMapper.toEntity(ReconciliationRun.start(runId, "ops", now)));
+
+        DiscrepancyId discId = DiscrepancyId.generate();
+        ReconciliationDiscrepancy disc = ReconciliationDiscrepancy.create(
+                discId, DiscrepancyKey.of(DiscrepancyType.STALE_IN_FLIGHT_WORKFLOW, "NO-OBS-1"),
+                runId, DiscrepancyType.STALE_IN_FLIGHT_WORKFLOW, "NO-OBS-1", "No obs", "{}", now
+        );
+        discrepancyRepository.saveAndFlush(operationsMapper.toEntity(disc));
+
+        mockMvc.perform(get(BASE_URL + "/discrepancies/" + discId.getValue() + "/observations")
+                        .with(user("ops").roles("OPERATIONS")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page", is(0)))
+                .andExpect(jsonPath("$.size", is(20)))
+                .andExpect(jsonPath("$.totalElements", is(0)))
+                .andExpect(jsonPath("$.totalPages", is(0)))
+                .andExpect(jsonPath("$.content", hasSize(0)));
+    }
+
+    @Test
+    @DisplayName("GET /discrepancies/{discrepancyId}/observations returns 404 when discrepancy does not exist")
+    void shouldReturn404WhenDiscrepancyDoesNotExistForObservations() throws Exception {
+        UUID unknownId = UUID.randomUUID();
+
+        mockMvc.perform(get(BASE_URL + "/discrepancies/" + unknownId + "/observations")
+                        .with(user("ops").roles("OPERATIONS")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status", is(404)))
+                .andExpect(jsonPath("$.error", is("Not Found")))
+                .andExpect(jsonPath("$.message", containsString("Discrepancy not found: " + unknownId)));
+    }
+
+    @Test
+    @DisplayName("GET /discrepancies/{discrepancyId}/observations validates pagination parameters")
+    void shouldReturn400ForInvalidObservationsPaginationParameters() throws Exception {
+        UUID discUuid = UUID.randomUUID();
+
+        // Malformed UUID
+        mockMvc.perform(get(BASE_URL + "/discrepancies/invalid-uuid/observations")
+                        .with(user("ops").roles("OPERATIONS")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status", is(400)))
+                .andExpect(jsonPath("$.message", containsString("Invalid parameter 'discrepancyId'")));
+
+        // Negative page
+        mockMvc.perform(get(BASE_URL + "/discrepancies/" + discUuid + "/observations?page=-1")
+                        .with(user("ops").roles("OPERATIONS")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status", is(400)))
+                .andExpect(jsonPath("$.message", containsString("page must be >= 0")));
+
+        // Zero size
+        mockMvc.perform(get(BASE_URL + "/discrepancies/" + discUuid + "/observations?size=0")
+                        .with(user("ops").roles("OPERATIONS")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status", is(400)))
+                .andExpect(jsonPath("$.message", containsString("size must be between 1 and 100")));
+
+        // Oversize > 100
+        mockMvc.perform(get(BASE_URL + "/discrepancies/" + discUuid + "/observations?size=101")
+                        .with(user("ops").roles("OPERATIONS")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status", is(400)))
+                .andExpect(jsonPath("$.message", containsString("size must be between 1 and 100")));
+    }
+
+    @Test
+    @DisplayName("GET /discrepancies/{discrepancyId}/observations returns only observations for the target discrepancy")
+    void shouldOnlyReturnObservationsForRequestedDiscrepancyId() throws Exception {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        ReconciliationRunId runId = ReconciliationRunId.generate();
+        runRepository.saveAndFlush(operationsMapper.toEntity(ReconciliationRun.start(runId, "ops", now)));
+
+        DiscrepancyId discA = DiscrepancyId.generate();
+        DiscrepancyId discB = DiscrepancyId.generate();
+
+        discrepancyRepository.saveAndFlush(operationsMapper.toEntity(ReconciliationDiscrepancy.create(
+                discA, DiscrepancyKey.of(DiscrepancyType.PAYMENT_LEDGER_BREAK, "A"), runId,
+                DiscrepancyType.PAYMENT_LEDGER_BREAK, "A", "Disc A", "{}", now
+        )));
+        discrepancyRepository.saveAndFlush(operationsMapper.toEntity(ReconciliationDiscrepancy.create(
+                discB, DiscrepancyKey.of(DiscrepancyType.PAYMENT_LEDGER_BREAK, "B"), runId,
+                DiscrepancyType.PAYMENT_LEDGER_BREAK, "B", "Disc B", "{}", now
+        )));
+
+        observationRepository.saveAndFlush(operationsMapper.toEntity(ReconciliationDiscrepancyObservation.createLive(
+                DiscrepancyObservationId.generate(), discA, runId,
+                DiscrepancyType.PAYMENT_LEDGER_BREAK, DiscrepancyStatus.OPEN, "Obs A", "{}", now
+        )));
+        observationRepository.saveAndFlush(operationsMapper.toEntity(ReconciliationDiscrepancyObservation.createLive(
+                DiscrepancyObservationId.generate(), discB, runId,
+                DiscrepancyType.PAYMENT_LEDGER_BREAK, DiscrepancyStatus.OPEN, "Obs B", "{}", now
+        )));
+
+        mockMvc.perform(get(BASE_URL + "/discrepancies/" + discA.getValue() + "/observations")
+                        .with(user("ops").roles("OPERATIONS")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", hasSize(1)))
+                .andExpect(jsonPath("$.content[0].discrepancyId", is(discA.getValue().toString())))
+                .andExpect(jsonPath("$.content[0].summary", is("Obs A")));
+    }
 }

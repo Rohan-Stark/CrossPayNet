@@ -5,12 +5,14 @@ import com.crosspaynet.operations.application.check.ReconciliationCheckExecutor;
 import com.crosspaynet.operations.contracts.DiscrepancyQueryFilter;
 import com.crosspaynet.operations.contracts.PagedResult;
 import com.crosspaynet.operations.contracts.ReconciliationCheckExecutionView;
+import com.crosspaynet.operations.contracts.ReconciliationDiscrepancyObservationView;
 import com.crosspaynet.operations.contracts.ReconciliationDiscrepancyView;
 import com.crosspaynet.operations.contracts.ReconciliationRunView;
 import com.crosspaynet.operations.contracts.ReconciliationService;
 import com.crosspaynet.operations.contracts.TriggerReconciliationRunCommand;
 import com.crosspaynet.operations.domain.DiscrepancyId;
 import com.crosspaynet.operations.domain.OperationsConflictException;
+import com.crosspaynet.operations.domain.OperationsNotFoundException;
 import com.crosspaynet.operations.domain.ReconciliationCheckExecution;
 import com.crosspaynet.operations.domain.ReconciliationCheckExecutionId;
 import com.crosspaynet.operations.domain.ReconciliationCheckStatus;
@@ -21,6 +23,7 @@ import com.crosspaynet.operations.infrastructure.persistence.OperationsMapper;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationCheckExecutionRepository;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyEntity;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyObservationEntity;
+import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyObservationRepository;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyRepository;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationRunEntity;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationRunRepository;
@@ -60,6 +63,7 @@ public class ReconciliationServiceImpl implements ReconciliationService {
     private final ReconciliationRunRepository runRepository;
     private final ReconciliationCheckExecutionRepository checkExecutionRepository;
     private final ReconciliationDiscrepancyRepository discrepancyRepository;
+    private final ReconciliationDiscrepancyObservationRepository observationRepository;
     private final OperationsMapper operationsMapper;
     private final List<ReconciliationCheckExecutor> checkExecutors;
     private final TransactionTemplate transactionTemplate;
@@ -70,6 +74,7 @@ public class ReconciliationServiceImpl implements ReconciliationService {
             ReconciliationRunRepository runRepository,
             ReconciliationCheckExecutionRepository checkExecutionRepository,
             ReconciliationDiscrepancyRepository discrepancyRepository,
+            ReconciliationDiscrepancyObservationRepository observationRepository,
             OperationsMapper operationsMapper,
             List<ReconciliationCheckExecutor> checkExecutors,
             PlatformTransactionManager transactionManager
@@ -77,6 +82,7 @@ public class ReconciliationServiceImpl implements ReconciliationService {
         this.runRepository = Objects.requireNonNull(runRepository, "runRepository cannot be null.");
         this.checkExecutionRepository = Objects.requireNonNull(checkExecutionRepository, "checkExecutionRepository cannot be null.");
         this.discrepancyRepository = Objects.requireNonNull(discrepancyRepository, "discrepancyRepository cannot be null.");
+        this.observationRepository = Objects.requireNonNull(observationRepository, "observationRepository cannot be null.");
         this.operationsMapper = Objects.requireNonNull(operationsMapper, "operationsMapper cannot be null.");
         this.checkExecutors = checkExecutors != null ? List.copyOf(checkExecutors) : List.of();
         this.transactionTemplate = new TransactionTemplate(Objects.requireNonNull(transactionManager, "transactionManager cannot be null."));
@@ -335,6 +341,39 @@ public class ReconciliationServiceImpl implements ReconciliationService {
 
         Page<ReconciliationDiscrepancyEntity> entityPage = discrepancyRepository.findAll(spec, pageable);
         List<ReconciliationDiscrepancyView> content = entityPage.getContent().stream()
+                .map(operationsMapper::toView)
+                .toList();
+
+        return new PagedResult<>(
+                content,
+                entityPage.getNumber(),
+                entityPage.getSize(),
+                entityPage.getTotalElements(),
+                entityPage.getTotalPages()
+        );
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PagedResult<ReconciliationDiscrepancyObservationView> findObservations(DiscrepancyId discrepancyId, int page, int size) {
+        if (discrepancyId == null) {
+            throw new IllegalArgumentException("discrepancyId cannot be null.");
+        }
+        if (page < 0) {
+            throw new IllegalArgumentException("page must be >= 0");
+        }
+        if (size <= 0 || size > 100) {
+            throw new IllegalArgumentException("size must be between 1 and 100");
+        }
+
+        if (!discrepancyRepository.existsById(discrepancyId.getValue())) {
+            throw new OperationsNotFoundException("Discrepancy not found: " + discrepancyId.getValue());
+        }
+
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "observedAt", "observationId"));
+        Page<ReconciliationDiscrepancyObservationEntity> entityPage = observationRepository.findByDiscrepancyId(discrepancyId.getValue(), pageable);
+
+        List<ReconciliationDiscrepancyObservationView> content = entityPage.getContent().stream()
                 .map(operationsMapper::toView)
                 .toList();
 

@@ -2,14 +2,20 @@ package com.crosspaynet.operations.application;
 
 import com.crosspaynet.operations.application.check.CheckExecutionOutcome;
 import com.crosspaynet.operations.application.check.ReconciliationCheckExecutor;
+import com.crosspaynet.operations.contracts.PagedResult;
+import com.crosspaynet.operations.contracts.ReconciliationDiscrepancyObservationView;
 import com.crosspaynet.operations.contracts.ReconciliationRunView;
 import com.crosspaynet.operations.contracts.TriggerReconciliationRunCommand;
+import com.crosspaynet.operations.domain.DiscrepancyId;
 import com.crosspaynet.operations.domain.OperationsConflictException;
+import com.crosspaynet.operations.domain.OperationsNotFoundException;
 import com.crosspaynet.operations.domain.ReconciliationRunId;
 import com.crosspaynet.operations.domain.ReconciliationRunStatus;
 import com.crosspaynet.operations.infrastructure.persistence.OperationsMapper;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationCheckExecutionEntity;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationCheckExecutionRepository;
+import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyObservationEntity;
+import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyObservationRepository;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationDiscrepancyRepository;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationRunEntity;
 import com.crosspaynet.operations.infrastructure.persistence.ReconciliationRunRepository;
@@ -19,6 +25,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 
@@ -52,6 +61,9 @@ class ReconciliationServiceTest {
     private ReconciliationDiscrepancyRepository discrepancyRepository;
 
     @Mock
+    private ReconciliationDiscrepancyObservationRepository observationRepository;
+
+    @Mock
     private PlatformTransactionManager transactionManager;
 
     @Mock
@@ -72,6 +84,7 @@ class ReconciliationServiceTest {
                 runRepository,
                 checkExecutionRepository,
                 discrepancyRepository,
+                observationRepository,
                 operationsMapper,
                 List.of(check1, check2),
                 transactionManager
@@ -196,5 +209,80 @@ class ReconciliationServiceTest {
         // Release check
         checkHold.countDown();
         background.join();
+    }
+
+    @Test
+    void shouldFindObservationsSuccessfullyWhenDiscrepancyExists() {
+        UUID discrepancyUuid = UUID.randomUUID();
+        DiscrepancyId discrepancyId = DiscrepancyId.of(discrepancyUuid);
+        when(discrepancyRepository.existsById(discrepancyUuid)).thenReturn(true);
+
+        UUID obsId = UUID.randomUUID();
+        UUID runId = UUID.randomUUID();
+        Instant now = Instant.now();
+        ReconciliationDiscrepancyObservationEntity entity = new ReconciliationDiscrepancyObservationEntity(
+                obsId,
+                discrepancyUuid,
+                runId,
+                "PAYMENT_LEDGER_BREAK",
+                "OPEN",
+                "Break detected",
+                "{\"expected\": 100}",
+                now,
+                "LIVE",
+                now
+        );
+
+        when(observationRepository.findByDiscrepancyId(any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(entity), PageRequest.of(0, 20), 1));
+
+        PagedResult<ReconciliationDiscrepancyObservationView> result = reconciliationService.findObservations(discrepancyId, 0, 20);
+
+        assertThat(result.content()).hasSize(1);
+        ReconciliationDiscrepancyObservationView view = result.content().get(0);
+        assertThat(view.observationId().getValue()).isEqualTo(obsId);
+        assertThat(view.discrepancyId().getValue()).isEqualTo(discrepancyUuid);
+        assertThat(view.runId().getValue()).isEqualTo(runId);
+        assertThat(view.discrepancyType().name()).isEqualTo("PAYMENT_LEDGER_BREAK");
+        assertThat(view.statusAtObservation().name()).isEqualTo("OPEN");
+        assertThat(view.summary()).isEqualTo("Break detected");
+        assertThat(view.details()).isEqualTo("{\"expected\": 100}");
+        assertThat(view.provenance().name()).isEqualTo("LIVE");
+        assertThat(result.totalElements()).isEqualTo(1);
+        assertThat(result.totalPages()).isEqualTo(1);
+    }
+
+    @Test
+    void shouldThrowNotFoundWhenFindingObservationsForNonExistentDiscrepancy() {
+        UUID discrepancyUuid = UUID.randomUUID();
+        DiscrepancyId discrepancyId = DiscrepancyId.of(discrepancyUuid);
+        when(discrepancyRepository.existsById(discrepancyUuid)).thenReturn(false);
+
+        assertThatThrownBy(() -> reconciliationService.findObservations(discrepancyId, 0, 20))
+                .isInstanceOf(OperationsNotFoundException.class)
+                .hasMessageContaining("Discrepancy not found: " + discrepancyUuid);
+
+        verify(observationRepository, never()).findByDiscrepancyId(any(), any());
+    }
+
+    @Test
+    void shouldRejectInvalidPaginationParametersForObservations() {
+        DiscrepancyId id = DiscrepancyId.generate();
+
+        assertThatThrownBy(() -> reconciliationService.findObservations(null, 0, 20))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("discrepancyId cannot be null");
+
+        assertThatThrownBy(() -> reconciliationService.findObservations(id, -1, 20))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("page must be >= 0");
+
+        assertThatThrownBy(() -> reconciliationService.findObservations(id, 0, 0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("size must be between 1 and 100");
+
+        assertThatThrownBy(() -> reconciliationService.findObservations(id, 0, 101))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("size must be between 1 and 100");
     }
 }

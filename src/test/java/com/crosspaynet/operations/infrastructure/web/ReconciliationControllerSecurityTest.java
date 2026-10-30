@@ -5,13 +5,16 @@ import com.crosspaynet.PostgresTestContainerConfig;
 import com.crosspaynet.operations.contracts.DiscrepancyQueryFilter;
 import com.crosspaynet.operations.contracts.PagedResult;
 import com.crosspaynet.operations.contracts.ReconciliationCheckExecutionView;
+import com.crosspaynet.operations.contracts.ReconciliationDiscrepancyObservationView;
 import com.crosspaynet.operations.contracts.ReconciliationDiscrepancyView;
 import com.crosspaynet.operations.contracts.ReconciliationRunView;
 import com.crosspaynet.operations.contracts.ReconciliationService;
 import com.crosspaynet.operations.contracts.TriggerReconciliationRunCommand;
 import com.crosspaynet.operations.domain.DiscrepancyId;
+import com.crosspaynet.operations.domain.DiscrepancyObservationId;
 import com.crosspaynet.operations.domain.DiscrepancyStatus;
 import com.crosspaynet.operations.domain.DiscrepancyType;
+import com.crosspaynet.operations.domain.ObservationProvenance;
 import com.crosspaynet.operations.domain.OperationsConflictException;
 import com.crosspaynet.operations.domain.OperationsNotFoundException;
 import com.crosspaynet.operations.domain.ReconciliationRunId;
@@ -111,6 +114,9 @@ class ReconciliationControllerSecurityTest {
 
             mockMvc.perform(get(BASE_URL + "/discrepancies/" + testId))
                     .andExpect(status().isUnauthorized());
+
+            mockMvc.perform(get(BASE_URL + "/discrepancies/" + testId + "/observations"))
+                    .andExpect(status().isUnauthorized());
         }
 
         @Test
@@ -138,6 +144,10 @@ class ReconciliationControllerSecurityTest {
                         .andExpect(status().isForbidden());
 
                 mockMvc.perform(get(BASE_URL + "/discrepancies/" + testId)
+                                .with(user("user").roles(role)))
+                        .andExpect(status().isForbidden());
+
+                mockMvc.perform(get(BASE_URL + "/discrepancies/" + testId + "/observations")
                                 .with(user("user").roles(role)))
                         .andExpect(status().isForbidden());
             }
@@ -176,6 +186,17 @@ class ReconciliationControllerSecurityTest {
                             .with(user("ops-officer").roles("OPERATIONS")))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.runId", is(runUuid.toString())));
+
+            UUID discUuid = UUID.randomUUID();
+            DiscrepancyId discId = DiscrepancyId.of(discUuid);
+            when(reconciliationService.findObservations(discId, 0, 20))
+                    .thenReturn(new PagedResult<>(List.of(), 0, 20, 0, 0));
+
+            mockMvc.perform(get(BASE_URL + "/discrepancies/" + discUuid + "/observations")
+                            .with(user("ops-officer").roles("OPERATIONS")))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content", hasSize(0)))
+                    .andExpect(jsonPath("$.totalElements", is(0)));
         }
 
         @Test
@@ -197,6 +218,15 @@ class ReconciliationControllerSecurityTest {
                     .andExpect(jsonPath("$.triggeredBy", is("admin-user")));
 
             mockMvc.perform(get(BASE_URL + "/runs")
+                            .with(user("admin-user").roles("ADMIN")))
+                    .andExpect(status().isOk());
+
+            UUID discUuid = UUID.randomUUID();
+            DiscrepancyId discId = DiscrepancyId.of(discUuid);
+            when(reconciliationService.findObservations(discId, 0, 20))
+                    .thenReturn(new PagedResult<>(List.of(), 0, 20, 0, 0));
+
+            mockMvc.perform(get(BASE_URL + "/discrepancies/" + discUuid + "/observations")
                             .with(user("admin-user").roles("ADMIN")))
                     .andExpect(status().isOk());
         }
@@ -333,6 +363,33 @@ class ReconciliationControllerSecurityTest {
                     .andExpect(jsonPath("$.status", is(400)))
                     .andExpect(jsonPath("$.error", is("Bad Request")))
                     .andExpect(jsonPath("$.message", containsString("Invalid parameter 'runId'")));
+        }
+
+        @Test
+        @DisplayName("Non-existent discrepancy for observations returns 404 Not Found")
+        void nonExistentDiscrepancyObservationsReturns404() throws Exception {
+            UUID discrepancyUuid = UUID.randomUUID();
+            DiscrepancyId discId = DiscrepancyId.of(discrepancyUuid);
+            when(reconciliationService.findObservations(discId, 0, 20))
+                    .thenThrow(new OperationsNotFoundException("Discrepancy not found: " + discrepancyUuid));
+
+            mockMvc.perform(get(BASE_URL + "/discrepancies/" + discrepancyUuid + "/observations")
+                            .with(user("ops").roles("OPERATIONS")))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.status", is(404)))
+                    .andExpect(jsonPath("$.error", is("Not Found")))
+                    .andExpect(jsonPath("$.message", containsString("Discrepancy not found")));
+        }
+
+        @Test
+        @DisplayName("Malformed discrepancy UUID on observations returns 400 Bad Request")
+        void malformedDiscrepancyUuidOnObservationsReturns400() throws Exception {
+            mockMvc.perform(get(BASE_URL + "/discrepancies/not-a-valid-uuid/observations")
+                            .with(user("ops").roles("OPERATIONS")))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status", is(400)))
+                    .andExpect(jsonPath("$.error", is("Bad Request")))
+                    .andExpect(jsonPath("$.message", containsString("Invalid parameter 'discrepancyId'")));
         }
     }
 }
