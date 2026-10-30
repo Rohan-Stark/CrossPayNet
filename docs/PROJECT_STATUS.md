@@ -1,7 +1,7 @@
 # Project Status
 
 Current Phase: Phase 9B — Scheduled Reconciliation & Historical Observation Tracking
-Current Subphase: Checkpoint 1 Implemented Locally (Observation History & Persistence)
+Current Subphase: Checkpoint 2 Implemented Locally (Scheduled Reconciliation with ShedLock)
 
 ## Completed Phases
 * Phase 0 — Engineering Constitution
@@ -56,8 +56,10 @@ Current Subphase: Checkpoint 1 Implemented Locally (Observation History & Persis
 * **Phase 9B — Scheduled Reconciliation & Historical Observation Tracking (`operations` Module)** ⏳ (In Progress)
   * **Checkpoint 1 (Observation History & Persistence)**: Flyway migration `V17__operations_discrepancy_observations.sql`, Operations-owned `reconciliation_discrepancy_observation` table, honest legacy backfill (`LEGACY_RECONSTRUCTED`), `ReconciliationDiscrepancyObservation` domain record, JPA entity and repository, `DiscrepancyRecorder` per-run idempotency, and evolved `runId` query filter matching historical intermediate runs.
 
+  * **Checkpoint 2 (Scheduled Reconciliation with ShedLock)**: Spring @Scheduled + ShedLock with PostgreSQL JDBC lock provider (operations.shedlock, V18), opt-in configurable scheduling (crosspaynet.operations.reconciliation.scheduling.*), graceful OperationsConflictException handling, and multi-instance concurrency protection.
+
 ## Current/Next Phase
-* **Phase 9B Checkpoint 2 — Scheduled Background Reconciliation** ▶ NEXT
+* **Phase 9B Checkpoint 3 — Observation History REST API & Query Evolution** ▶ NEXT
 
 ## Upcoming Phases
 * Phase 9 — Observability & Operations

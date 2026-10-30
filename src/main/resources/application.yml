@@ -70,3 +70,12 @@ crosspaynet:
       admin:
         username: ${CROSSPAYNET_ADMIN_USERNAME:admin}
         password: ${CROSSPAYNET_ADMIN_PASSWORD:admin123!}
+  operations:
+    reconciliation:
+      scheduling:
+        # Scheduled periodic reconciliation scans (Phase 9B Checkpoint 2)
+        # Strictly disabled by default; set to true to enable with ShedLock multi-instance protection
+        enabled: ${CROSSPAYNET_OPERATIONS_RECONCILIATION_SCHEDULING_ENABLED:false}
+        cron: ${CROSSPAYNET_OPERATIONS_RECONCILIATION_SCHEDULING_CRON:0 */15 * * * *}
+        lock-at-most-for: ${CROSSPAYNET_OPERATIONS_RECONCILIATION_SCHEDULING_LOCK_AT_MOST_FOR:30m}
+        lock-at-least-for: ${CROSSPAYNET_OPERATIONS_RECONCILIATION_SCHEDULING_LOCK_AT_LEAST_FOR:5m}

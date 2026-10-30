@@ -4,6 +4,36 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
+## 2026-10-28 — Phase 9B Checkpoint 2: Production-Practical Scheduled Reconciliation with ShedLock — *Implemented Locally (Pending Acceptance Review)*
+
+* **Scope**: Implemented periodic background operational reconciliation with multi-instance concurrency protection:
+  * **Dependencies**: Added `shedlock-spring` (6.3.0) and `shedlock-provider-jdbc-template` (6.3.0) to `pom.xml` with managed property `<shedlock.version>6.3.0</shedlock.version>`.
+  * **Flyway Migration `V18__operations_shedlock.sql`**:
+    * Created `operations.shedlock` table owned by the Operations module:
+      * `name VARCHAR(64) PRIMARY KEY`, `lock_until TIMESTAMPTZ NOT NULL`, `locked_at TIMESTAMPTZ NOT NULL`, `locked_by VARCHAR(255) NOT NULL`.
+  * **Configuration & Scheduling Infrastructure (`com.crosspaynet.operations.infrastructure.scheduling`)**:
+    * Created `OperationsSchedulingProperties`:
+      * Bound to prefix `crosspaynet.operations.reconciliation.scheduling`.
+      * Defaults: `enabled = false` (strictly opt-in), `cron = "0 */15 * * * *"`, `lockAtMostFor = Duration.ofMinutes(30)`, `lockAtLeastFor = Duration.ofMinutes(5)`.
+    * Created `OperationsSchedulingConfiguration`:
+      * Conditionally activated on `crosspaynet.operations.reconciliation.scheduling.enabled=true`.
+      * `@EnableScheduling`, `@EnableSchedulerLock(defaultLockAtMostFor = "30m")`.
+      * Configured `JdbcTemplateLockProvider` using DB time (`.usingDbTime()`) and explicit schema-qualified table `"operations.shedlock"`.
+    * Created `ReconciliationScheduler`:
+      * Conditionally activated on `crosspaynet.operations.reconciliation.scheduling.enabled=true`.
+      * Scheduled method `scheduledReconciliationRun()` annotated with `@Scheduled(cron = "${crosspaynet.operations.reconciliation.scheduling.cron:0 */15 * * * *}")` and `@SchedulerLock(name = "operations_reconciliation_scheduler", lockAtMostFor = "${crosspaynet.operations.reconciliation.scheduling.lock-at-most-for:30m}", lockAtLeastFor = "${crosspaynet.operations.reconciliation.scheduling.lock-at-least-for:5m}")`.
+      * Invokes existing application service: `reconciliationService.triggerRun(new TriggerReconciliationRunCommand("SYSTEM_SCHEDULER"))`.
+      * Conflict & error handling: catches `OperationsConflictException` (e.g. concurrent manual or background run already in progress) and logs at `INFO` level as an expected skipped attempt; catches unexpected `Exception` and logs at `ERROR` level with stack trace without propagating, preventing schedule cancellation.
+  * **Application Configuration & Environment Placeholders**:
+    * Updated `application.yml` and `.env.example` with documented scheduling properties and environment variable bindings (`CROSSPAYNET_OPERATIONS_RECONCILIATION_SCHEDULING_*`).
+  * **Tests & Verification**:
+    * Added `ReconciliationSchedulerTest` (4 unit tests): verified invocation with `SYSTEM_SCHEDULER`, graceful conflict handling on `OperationsConflictException`, graceful handling of unexpected exceptions, and constructor validation.
+    * Added `ReconciliationSchedulingConditionalTest` (3 context tests): verified scheduling configuration, scheduler, and `LockProvider` beans are absent by default or when `enabled=false`, and present when `enabled=true`, along with property binding.
+    * Added `OperationsShedLockIntegrationTest` (4 PostgreSQL Testcontainers tests): verified Flyway V18 schema and primary key creation, verified two independent lock providers sharing the database prevent concurrent lock acquisition, verified lock release upon unlock with zero `lockAtLeastFor`, and verified enforcement of `lockAtLeastFor` retention window against PostgreSQL.
+    * Executed full Operations module suite (97 tests, 0 failures, 0 errors, 0 skipped) and `OperationsModulithArchitectureTest` (7 tests, 0 failures).
+
+---
+
 ## 2026-10-28 — Phase 9B Checkpoint 1 Corrective Tests: Real V16-to-V17 Flyway Migration & Atomic Rollback Verification — *Implemented Locally (Pending Acceptance Review)*
 
 * **Scope**: Addressed acceptance review test coverage gaps for Phase 9B Checkpoint 1 without modifying production code:
