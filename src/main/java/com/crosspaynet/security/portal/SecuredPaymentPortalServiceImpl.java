@@ -1,9 +1,12 @@
 package com.crosspaynet.security.portal;
 
 import com.crosspaynet.banking.BankingService;
+import com.crosspaynet.banking.contracts.AccountId;
+import com.crosspaynet.banking.contracts.CustomerAccountView;
 import com.crosspaynet.payment.PaymentService;
 import com.crosspaynet.payment.contracts.CancelPaymentCommand;
 import com.crosspaynet.payment.contracts.InitiatePaymentCommand;
+import com.crosspaynet.payment.contracts.PagedPayments;
 import com.crosspaynet.payment.contracts.PaymentId;
 import com.crosspaynet.payment.contracts.PaymentNotFoundException;
 import com.crosspaynet.payment.contracts.PaymentView;
@@ -17,8 +20,11 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class SecuredPaymentPortalServiceImpl implements SecuredPaymentPortalService {
@@ -87,6 +93,27 @@ public class SecuredPaymentPortalServiceImpl implements SecuredPaymentPortalServ
         }
 
         return paymentService.cancelPayment(command);
+    }
+
+    @Override
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public List<CustomerAccountView> findCustomerAccounts() {
+        UUID customerId = resolveAuthenticatedCustomerId();
+        return bankingService.findAccountsByCustomer(customerId);
+    }
+
+    @Override
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public PagedPayments findCustomerPayments(int page, int size) {
+        UUID customerId = resolveAuthenticatedCustomerId();
+        List<CustomerAccountView> accounts = bankingService.findAccountsByCustomer(customerId);
+        if (accounts.isEmpty()) {
+            return PagedPayments.empty(page, size);
+        }
+        Set<AccountId> sourceAccountIds = accounts.stream()
+                .map(CustomerAccountView::accountId)
+                .collect(Collectors.toSet());
+        return paymentService.findCustomerPayments(sourceAccountIds, page, size);
     }
 
     private UUID resolveAuthenticatedCustomerId() {

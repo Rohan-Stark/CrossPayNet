@@ -1,7 +1,7 @@
 # Project Status
 
 Current Phase: Phase 10 — Application APIs & Customer Experience
-Current Subphase: Checkpoint 10B Implemented Locally (Docker Compose Kafka & Reproducible Local Setup)
+Current Subphase: Checkpoint 10C Implemented Locally (Frontend Integration Prerequisites)
 
 ## Completed Phases
 * Phase 0 — Engineering Constitution
@@ -60,9 +60,10 @@ Current Subphase: Checkpoint 10B Implemented Locally (Docker Compose Kafka & Rep
 * **Phase 10 — Application APIs & Customer Experience** ⏳ (In Progress)
   * **Checkpoint 10A (Customer Payment REST API)**: Secured Spring Web MVC endpoints under `/api/v1/portal/payments` protected by `@PreAuthorize("hasRole('CUSTOMER')")`, delegating strictly to `SecuredPaymentPortalService` for debit account ownership verification, returning `201 Created` with `Location: /api/v1/portal/payments/{paymentId}` header, masking sensitive beneficiary account numbers with `DataMasker`, omitting internal technical metadata (`reservationToken`, `ledgerTransactionId`, `routeReference`, `externalDispatchReference`), mapping debit account ownership and payment cross-access violations to `404 Not Found` (anti-enumeration privacy policy) and `403 Forbidden`, and providing conflict-safe idempotency via `409 Conflict`.
   * **Checkpoint 10B (Docker Compose Kafka & Reproducible Local Setup)**: Reproducible local multi-container development environment with PostgreSQL 18 and Apache Kafka 3.8.0 in KRaft mode (no ZooKeeper), healthcheck probes (`pg_isready` and `kafka-broker-api-versions.sh`), configurable host port bindings via environment variables, Spring Boot Actuator `/actuator/health` probe integration, `.env.example` template with security warnings, dedicated `application-local.yml` profile, and robust Kafka consumer payload conversion (`ConsumerRecord<String, Object>`) ensuring 100% test reliability across all 422 repository tests.
+  * **Checkpoint 10C (Frontend Integration Prerequisites)**: Secured customer account overview API (`GET /api/v1/portal/accounts`), customer payment history API with pagination and masked beneficiary accounts (`GET /api/v1/portal/payments?page=0&size=20`), browser-compatible CSRF protection (`CookieCsrfTokenRepository` with `SpaCsrfTokenRequestHandler` and dedicated `GET /api/v1/portal/csrf` endpoint), configurable CORS support for SPA origins (`http://localhost:3000`), and reproducible local demo customer and route seeding via `LocalDemoDataInitializer` under `@Profile("local")` with 100% test coverage across all 441 repository tests.
 
 ## Current/Next Phase
-* **Phase 10 Checkpoint 10B — Docker Compose Kafka & Reproducible Local Setup** (Implemented locally, awaiting review)
+* **Phase 10 Checkpoint 10C — Frontend Integration Prerequisites** (Implemented locally, awaiting review)
 
 ## Upcoming Phases
 * Phase 9 — Observability & Operations

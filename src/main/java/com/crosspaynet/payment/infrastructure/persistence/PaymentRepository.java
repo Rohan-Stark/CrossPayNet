@@ -23,6 +23,16 @@ public interface PaymentRepository extends JpaRepository<PaymentEntity, UUID> {
 
     @Query("""
         SELECT p FROM PaymentEntity p
+         WHERE p.sourceAccountId IN :sourceAccountIds
+         ORDER BY p.createdAt DESC, p.paymentId DESC
+        """)
+    org.springframework.data.domain.Page<PaymentEntity> findBySourceAccountIdIn(
+            @Param("sourceAccountIds") java.util.Collection<UUID> sourceAccountIds,
+            org.springframework.data.domain.Pageable pageable
+    );
+
+    @Query("""
+        SELECT p FROM PaymentEntity p
          WHERE p.status IN :statuses
            AND p.updatedAt <= :cutoffTime
          ORDER BY p.updatedAt ASC, p.paymentId ASC

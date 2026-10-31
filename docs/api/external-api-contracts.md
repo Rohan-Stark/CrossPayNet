@@ -86,7 +86,94 @@ This document defines the conceptual, client-oriented REST API boundaries for Cr
 
 ---
 
-#### `POST /payments/{paymentId}/cancellations` - Cancel Payment
+#### `GET /api/v1/portal/payments` — Customer Payment History
+* **Purpose**: Retrieve a paginated list of cross-border payment records belonging to the authenticated customer's accounts.
+* **Authorization**: `ROLE_CUSTOMER`. Resolves customer identity from `Authentication.getName()` and filters payments by the customer's owned accounts in `banking.account`.
+* **Query Parameters**:
+  * `page` (optional integer, default `0`, min `0`).
+  * `size` (optional integer, default `20`, min `1`, max `100`).
+* **Ordering**: Strict database-level ordering: `createdAt DESC, paymentId DESC`.
+* **Response Semantics**: `200 OK`.
+* **Response Payload (`PagedResponse<CustomerPaymentResponse>`)**:
+```json
+{
+  "content": [
+    {
+      "paymentId": "73c6838a-3603-4b68-b715-c2db21469e38",
+      "sourceAccountId": "550e8400-e29b-41d4-a716-446655440000",
+      "paymentReference": "PAY-20261031-0001",
+      "amount": 500.0000,
+      "currency": "USD",
+      "beneficiaryName": "British Telecom PLC",
+      "beneficiaryAccountNumber": "****6819",
+      "beneficiaryBankBic": "NWBKGB2LXXX",
+      "status": "COMPLIANCE_HOLD",
+      "statusReasonCode": null,
+      "statusReasonDetail": null,
+      "createdAt": "2026-10-31T01:45:00Z",
+      "updatedAt": "2026-10-31T01:45:00Z"
+    }
+  ],
+  "page": 0,
+  "size": 20,
+  "totalElements": 1,
+  "totalPages": 1
+}
+```
+* **Status Codes**:
+  * `200 OK`: History retrieved successfully (returns empty content page if customer has no accounts or payments).
+  * `401 Unauthorized`: Unauthenticated request.
+  * `403 Forbidden`: Authenticated user lacks `ROLE_CUSTOMER`.
+
+---
+
+### 2.2 Customer Account Overview API (`/api/v1/portal/accounts`)
+
+#### `GET /api/v1/portal/accounts` — List Customer Accounts
+* **Purpose**: Retrieve an overview of all banking accounts owned by the authenticated customer with balance summaries.
+* **Authorization**: `ROLE_CUSTOMER`. Resolves authenticated principal (`Authentication.getName()`) and queries owned accounts.
+* **Response Semantics**: `200 OK`.
+* **Response Payload (`List<CustomerAccountResponse>`)**:
+```json
+[
+  {
+    "accountId": "550e8400-e29b-41d4-a716-446655440000",
+    "maskedAccountNumber": "****0000",
+    "currency": "USD",
+    "status": "ACTIVE",
+    "availableBalance": 10000.0000,
+    "reservedAmount": 0.0000,
+    "totalBalance": 10000.0000
+  }
+]
+```
+* **Privacy & Isolation**: Internal reservation tokens, audit columns, and JPA entities are strictly excluded.
+* **Status Codes**:
+  * `200 OK`: Account overview retrieved successfully.
+  * `401 Unauthorized`: Unauthenticated request.
+  * `403 Forbidden`: Authenticated user lacks `ROLE_CUSTOMER`.
+
+---
+
+### 2.3 Browser Integration & CSRF Token API (`/api/v1/portal/csrf`)
+
+#### `GET /api/v1/portal/csrf` (Alias: `GET /api/v1/auth/csrf`) — Retrieve CSRF Token
+* **Purpose**: Lightweight endpoint for Single Page Applications (Next.js) to retrieve the active CSRF token metadata and ensure the `XSRF-TOKEN` cookie is set.
+* **Authorization**: Publicly accessible.
+* **Cookie Semantics**: Commits `XSRF-TOKEN` cookie (`HttpOnly=false`, `Path=/`, `SameSite=Lax`).
+* **Response Payload**:
+```json
+{
+  "token": "4954fc82-3d71-4608-8dc0-58c9735d4872",
+  "headerName": "X-XSRF-TOKEN",
+  "parameterName": "_csrf"
+}
+```
+* **CORS Support**: Preflight `OPTIONS` and standard verbs configured for allowed browser origins (default: `http://localhost:3000`).
+
+---
+
+### 2.4 Cancellation & Operations APIs
 * **Purpose**: Customer request to cancel an in-flight payment.
 * **Authorization**: `ROLE_CUSTOMER`.
 * **Idempotency**: *Idempotent mutation.* Explicit rules for cancellation:

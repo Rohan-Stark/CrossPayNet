@@ -32,3 +32,5 @@ crosspaynet:
       admin:
         username: ${CROSSPAYNET_ADMIN_USERNAME:admin}
         password: ${CROSSPAYNET_ADMIN_PASSWORD:admin123!}
+  demo-data:
+    enabled: true

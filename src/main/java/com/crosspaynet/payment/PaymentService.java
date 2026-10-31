@@ -14,6 +14,7 @@ import com.crosspaynet.payment.contracts.FailPaymentCommand;
 import com.crosspaynet.payment.contracts.InitiatePaymentCommand;
 import com.crosspaynet.payment.contracts.InvalidPaymentStateException;
 import com.crosspaynet.payment.contracts.MarkPaymentDispatchedCommand;
+import com.crosspaynet.payment.contracts.PagedPayments;
 import com.crosspaynet.payment.contracts.PaymentId;
 import com.crosspaynet.payment.contracts.PaymentInstruction;
 import com.crosspaynet.payment.contracts.PaymentInstructionReceived;
@@ -441,6 +442,48 @@ public class PaymentService implements PaymentSettlementPort, PaymentReconciliat
                 )
                 .map(paymentMapper::toDomain)
                 .map(Payment::toView);
+    }
+
+    /**
+     * Retrieves paginated payment history for specified source accounts, ordered deterministically
+     * by {@code createdAt DESC, paymentId DESC}.
+     */
+    @Transactional(readOnly = true)
+    public PagedPayments findCustomerPayments(
+            Set<AccountId> sourceAccountIds,
+            int page,
+            int size
+    ) {
+        if (sourceAccountIds == null || sourceAccountIds.isEmpty()) {
+            return PagedPayments.empty(page, size);
+        }
+        if (page < 0) {
+            throw new PaymentValidationException("page cannot be negative.");
+        }
+        if (size < 1 || size > 100) {
+            throw new PaymentValidationException("size must be between 1 and 100.");
+        }
+
+        List<UUID> accountUuids = sourceAccountIds.stream()
+                .map(AccountId::getValue)
+                .toList();
+
+        PageRequest pageRequest = PageRequest.of(page, size);
+        org.springframework.data.domain.Page<PaymentEntity> entityPage =
+                paymentRepository.findBySourceAccountIdIn(accountUuids, pageRequest);
+
+        List<PaymentView> views = entityPage.getContent().stream()
+                .map(paymentMapper::toDomain)
+                .map(Payment::toView)
+                .toList();
+
+        return new PagedPayments(
+                views,
+                entityPage.getNumber(),
+                entityPage.getSize(),
+                entityPage.getTotalElements(),
+                entityPage.getTotalPages()
+        );
     }
 
     @Override

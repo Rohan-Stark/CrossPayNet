@@ -119,6 +119,23 @@ docker compose down
 docker compose down -v
 ```
 
+### Local Demo Data & Frontend Integration
+
+When started with the `local` profile (`-Dspring-boot.run.profiles=local`), the application automatically seeds demo records via `LocalDemoDataInitializer` (`crosspaynet.demo-data.enabled: true`):
+* **Demo Customer User**: Username `customer` (Role: `ROLE_CUSTOMER`, password `customer` in dev in-memory auth).
+* **Demo USD Account**: Active account pre-funded with `$10,000.0000 USD`.
+* **Correspondent Route**: Active route for BIC `DBEUMM21XXX` in `USD`.
+
+#### Available Portal APIs
+* `GET /api/v1/portal/csrf`: Returns active CSRF token metadata and sets `XSRF-TOKEN` cookie (`HttpOnly=false`).
+* `GET /api/v1/portal/accounts`: Returns account overview and balances for authenticated customer.
+* `GET /api/v1/portal/payments?page=0&size=20`: Returns paginated payment history for customer accounts.
+* `POST /api/v1/portal/payments`: Submits a cross-border payment instruction with CSRF protection and debit ownership validation.
+* `GET /api/v1/portal/payments/{paymentId}`: Tracks payment lifecycle status (with anti-enumeration protection).
+
+#### CORS Configuration
+Frontend Single Page Applications running at `http://localhost:3000` (e.g., Next.js) are pre-configured via `crosspaynet.security.cors.allowed-origins`. Credentials (`Cookie`, `Authorization`) are permitted with standard headers (`Content-Type`, `X-XSRF-TOKEN`).
+
 ### Troubleshooting
 
 * **Host Port Conflict on Port 5432 (PostgreSQL)**:

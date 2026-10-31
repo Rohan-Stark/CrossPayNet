@@ -11,4 +11,6 @@ public interface AccountRepository extends JpaRepository<AccountEntity, UUID> {
 
     @Query("SELECT r FROM FundReservationEntity r WHERE r.reservationToken = :token")
     Optional<FundReservationEntity> findReservationByToken(@Param("token") UUID token);
+
+    java.util.List<AccountEntity> findByCustomerIdOrderByAccountIdAsc(UUID customerId);
 }

@@ -9,6 +9,7 @@ import com.crosspaynet.common.money.Money;
 import com.crosspaynet.payment.contracts.BeneficiaryDetails;
 import com.crosspaynet.payment.contracts.BicCode;
 import com.crosspaynet.payment.contracts.InitiatePaymentCommand;
+import com.crosspaynet.payment.contracts.PagedPayments;
 import com.crosspaynet.payment.contracts.PaymentId;
 import com.crosspaynet.payment.contracts.PaymentInstruction;
 import com.crosspaynet.payment.contracts.PaymentNotFoundException;
@@ -36,6 +37,7 @@ import org.springframework.web.context.WebApplicationContext;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.containsString;
@@ -407,6 +409,107 @@ class PaymentPortalControllerSecurityTest {
                     .andExpect(jsonPath("$.status", is(400)))
                     .andExpect(jsonPath("$.error", is("Bad Request")))
                     .andExpect(jsonPath("$.message", containsString("Invalid parameter 'paymentId'")));
+        }
+    }
+
+    @Nested
+    @DisplayName("Customer Payment History (GET /api/v1/portal/payments)")
+    class PaymentHistory {
+
+        @Test
+        @DisplayName("Unauthenticated request to list payments returns 401 Unauthorized")
+        void unauthenticatedReturns401() throws Exception {
+            mockMvc.perform(get(BASE_URL))
+                    .andExpect(status().isUnauthorized());
+
+            verifyNoInteractions(portalService);
+        }
+
+        @Test
+        @DisplayName("Non-customer roles are rejected with 403 Forbidden")
+        void nonCustomerRolesForbidden() throws Exception {
+            for (String role : List.of("OPERATIONS", "COMPLIANCE", "ADMIN", "TELLER")) {
+                mockMvc.perform(get(BASE_URL).with(user("user").roles(role)))
+                        .andExpect(status().isForbidden());
+            }
+
+            verifyNoInteractions(portalService);
+        }
+
+        @Test
+        @DisplayName("Customer gets paginated payments with default page 0 and size 20")
+        void defaultPaginationReturnsPayments() throws Exception {
+            UUID customerId = UUID.randomUUID();
+            AccountId accountId = AccountId.generate();
+            PaymentView payment = createSamplePaymentView(
+                    PaymentId.generate(),
+                    accountId,
+                    new PaymentReference("REF-HIST-1"),
+                    "DE89370400440532016819",
+                    PaymentStatus.SETTLED
+            );
+
+            when(portalService.findCustomerPayments(0, 20))
+                    .thenReturn(new PagedPayments(List.of(payment), 0, 20, 1L, 1));
+
+            mockMvc.perform(get(BASE_URL).with(user(customerId.toString()).roles("CUSTOMER")))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.page", is(0)))
+                    .andExpect(jsonPath("$.size", is(20)))
+                    .andExpect(jsonPath("$.totalElements", is(1)))
+                    .andExpect(jsonPath("$.totalPages", is(1)))
+                    .andExpect(jsonPath("$.content[0].paymentId", is(payment.paymentId().getValue().toString())))
+                    .andExpect(jsonPath("$.content[0].status", is("SETTLED")))
+                    .andExpect(jsonPath("$.content[0].beneficiaryAccountNumber", is("****6819")));
+
+            verify(portalService).findCustomerPayments(0, 20);
+        }
+
+        @Test
+        @DisplayName("Negative page index returns 400 Bad Request")
+        void negativePageReturns400() throws Exception {
+            UUID customerId = UUID.randomUUID();
+
+            mockMvc.perform(get(BASE_URL + "?page=-1&size=20")
+                            .with(user(customerId.toString()).roles("CUSTOMER")))
+                    .andExpect(status().isBadRequest());
+
+            verifyNoInteractions(portalService);
+        }
+
+        @Test
+        @DisplayName("Size out of bounds returns 400 Bad Request")
+        void sizeOutOfBoundsReturns400() throws Exception {
+            UUID customerId = UUID.randomUUID();
+
+            mockMvc.perform(get(BASE_URL + "?page=0&size=0")
+                            .with(user(customerId.toString()).roles("CUSTOMER")))
+                    .andExpect(status().isBadRequest());
+
+            mockMvc.perform(get(BASE_URL + "?page=0&size=101")
+                            .with(user(customerId.toString()).roles("CUSTOMER")))
+                    .andExpect(status().isBadRequest());
+
+            verifyNoInteractions(portalService);
+        }
+
+        @Test
+        @DisplayName("Returns empty page when customer has no payments")
+        void emptyPageWhenNoPayments() throws Exception {
+            UUID customerId = UUID.randomUUID();
+
+            when(portalService.findCustomerPayments(0, 20))
+                    .thenReturn(PagedPayments.empty(0, 20));
+
+            mockMvc.perform(get(BASE_URL).with(user(customerId.toString()).roles("CUSTOMER")))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.page", is(0)))
+                    .andExpect(jsonPath("$.size", is(20)))
+                    .andExpect(jsonPath("$.totalElements", is(0)))
+                    .andExpect(jsonPath("$.totalPages", is(0)))
+                    .andExpect(jsonPath("$.content", org.hamcrest.Matchers.empty()));
+
+            verify(portalService).findCustomerPayments(0, 20);
         }
     }
 }

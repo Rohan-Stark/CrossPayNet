@@ -335,4 +335,66 @@ class PaymentPortalControllerIntegrationTest {
                 .andExpect(jsonPath("$.status", is("REJECTED")))
                 .andExpect(jsonPath("$.statusReasonCode", is("INSUFFICIENT_FUNDS")));
     }
+
+    @Test
+    @DisplayName("Scenario 7: Customer lists payment history with pagination and strict account isolation")
+    void customerListsPaymentHistoryWithIsolation() throws Exception {
+        UUID customerA = UUID.randomUUID();
+        AccountId accountA = seedCustomerAndAccount(customerA, "USD", new BigDecimal("10000.0000"));
+
+        UUID customerB = UUID.randomUUID();
+        AccountId accountB = seedCustomerAndAccount(customerB, "USD", new BigDecimal("10000.0000"));
+
+        // Initiate payment for Customer A
+        InitiatePaymentRequest reqA = new InitiatePaymentRequest(
+                accountA.getValue(),
+                "PAY-HIST-A-" + shortId(),
+                new BigDecimal("500.0000"),
+                "USD",
+                "Customer A Beneficiary",
+                "DE89370400440532013000",
+                "DBEUMM21XXX"
+        );
+        mockMvc.perform(post(BASE_URL)
+                        .with(user(customerA.toString()).roles("CUSTOMER"))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(reqA)))
+                .andExpect(status().isCreated());
+
+        // Initiate payment for Customer B
+        InitiatePaymentRequest reqB = new InitiatePaymentRequest(
+                accountB.getValue(),
+                "PAY-HIST-B-" + shortId(),
+                new BigDecimal("750.0000"),
+                "USD",
+                "Customer B Beneficiary",
+                "GB29NWBK60161331926819",
+                "NWBKGB2LXXX"
+        );
+        mockMvc.perform(post(BASE_URL)
+                        .with(user(customerB.toString()).roles("CUSTOMER"))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(reqB)))
+                .andExpect(status().isCreated());
+
+        // Customer A requests history: only Customer A's payment appears
+        mockMvc.perform(get(BASE_URL)
+                        .with(user(customerA.toString()).roles("CUSTOMER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements", is(1)))
+                .andExpect(jsonPath("$.content[0].sourceAccountId", is(accountA.getValue().toString())))
+                .andExpect(jsonPath("$.content[0].amount", is(500.0000)))
+                .andExpect(jsonPath("$.content[0].beneficiaryAccountNumber", is("****3000")));
+
+        // Customer B requests history: only Customer B's payment appears
+        mockMvc.perform(get(BASE_URL)
+                        .with(user(customerB.toString()).roles("CUSTOMER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements", is(1)))
+                .andExpect(jsonPath("$.content[0].sourceAccountId", is(accountB.getValue().toString())))
+                .andExpect(jsonPath("$.content[0].amount", is(750.0000)))
+                .andExpect(jsonPath("$.content[0].beneficiaryAccountNumber", is("****6819")));
+    }
 }

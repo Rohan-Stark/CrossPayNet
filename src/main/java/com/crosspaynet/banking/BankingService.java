@@ -11,18 +11,25 @@ import com.crosspaynet.banking.contracts.ReservationStatus;
 import com.crosspaynet.banking.contracts.ReservationToken;
 import com.crosspaynet.banking.contracts.ReservationView;
 import com.crosspaynet.common.money.Currency;
+import com.crosspaynet.banking.contracts.CustomerAccountView;
 import com.crosspaynet.banking.domain.Account;
 import com.crosspaynet.banking.infrastructure.persistence.AccountEntity;
 import com.crosspaynet.banking.infrastructure.persistence.AccountMapper;
 import com.crosspaynet.banking.infrastructure.persistence.AccountRepository;
+import com.crosspaynet.banking.infrastructure.persistence.CustomerEntity;
+import com.crosspaynet.banking.infrastructure.persistence.CustomerRepository;
 import com.crosspaynet.common.money.Money;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -30,11 +37,21 @@ import java.util.UUID;
 public class BankingService implements com.crosspaynet.banking.contracts.BankingReservationQueryPort {
 
     private final AccountRepository accountRepository;
+    private final CustomerRepository customerRepository;
     private final ApplicationEventPublisher eventPublisher;
 
     public BankingService(AccountRepository accountRepository, ApplicationEventPublisher eventPublisher) {
-        this.accountRepository = accountRepository;
-        this.eventPublisher = eventPublisher;
+        this(accountRepository, null, eventPublisher);
+    }
+
+    @Autowired
+    public BankingService(
+            AccountRepository accountRepository,
+            CustomerRepository customerRepository,
+            ApplicationEventPublisher eventPublisher) {
+        this.accountRepository = Objects.requireNonNull(accountRepository, "accountRepository cannot be null.");
+        this.customerRepository = customerRepository;
+        this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher cannot be null.");
     }
 
     /**
@@ -193,5 +210,76 @@ public class BankingService implements com.crosspaynet.banking.contracts.Banking
         }
         return accountRepository.findById(accountId.getValue())
                 .map(AccountEntity::getCustomerId);
+    }
+
+    /**
+     * Finds all accounts owned by an individual customer.
+     */
+    @Transactional(readOnly = true)
+    public List<CustomerAccountView> findAccountsByCustomer(UUID customerId) {
+        if (customerId == null) {
+            throw new IllegalArgumentException("CustomerId cannot be null.");
+        }
+        return accountRepository.findByCustomerIdOrderByAccountIdAsc(customerId).stream()
+                .map(entity -> {
+                    Currency currency = new Currency(entity.getCurrency());
+                    Money available = new Money(entity.getAvailableBalance(), currency);
+                    Money reserved = new Money(entity.getReservedAmount(), currency);
+                    Money total = available.add(reserved);
+                    String idStr = entity.getAccountId().toString();
+                    String masked = idStr.length() > 4 ? "****" + idStr.substring(idStr.length() - 4) : "****";
+                    return new CustomerAccountView(
+                            new AccountId(entity.getAccountId()),
+                            masked,
+                            currency,
+                            entity.getStatus(),
+                            available,
+                            reserved,
+                            total
+                    );
+                })
+                .toList();
+    }
+
+    /**
+     * Creates a customer record if it does not already exist.
+     */
+    @Transactional(propagation = Propagation.REQUIRED)
+    public void createCustomerIfNotExists(UUID customerId) {
+        if (customerId == null) {
+            throw new IllegalArgumentException("CustomerId cannot be null.");
+        }
+        Objects.requireNonNull(customerRepository, "customerRepository must be configured.");
+        if (!customerRepository.existsById(customerId)) {
+            customerRepository.save(new CustomerEntity(customerId));
+        }
+    }
+
+    /**
+     * Opens an account for an existing or newly created customer.
+     */
+    @Transactional(propagation = Propagation.REQUIRED)
+    public AccountId openAccount(UUID customerId, Currency currency, Money initialBalance) {
+        if (customerId == null) {
+            throw new IllegalArgumentException("CustomerId cannot be null.");
+        }
+        if (currency == null) {
+            throw new IllegalArgumentException("Currency cannot be null.");
+        }
+        if (initialBalance == null) {
+            throw new IllegalArgumentException("InitialBalance cannot be null.");
+        }
+        createCustomerIfNotExists(customerId);
+        AccountId accountId = AccountId.generate();
+        AccountEntity entity = new AccountEntity(
+                accountId.getValue(),
+                customerId,
+                currency.getCode(),
+                "ACTIVE",
+                initialBalance.getAmount(),
+                BigDecimal.ZERO.setScale(4)
+        );
+        accountRepository.save(entity);
+        return accountId;
     }
 }

@@ -4,6 +4,37 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
+## 2026-10-31 — Checkpoint 10C: Frontend Integration Prerequisites — *Implemented Locally (Pending Acceptance Review)*
+
+* **Scope**: Prepared the backend for Next.js frontend integration with customer account summaries, payment history, browser CSRF/CORS support, and demo data seeding:
+  * **Customer Account Overview API (`GET /api/v1/portal/accounts`)**:
+    * Created `CustomerAccountController` secured by `@PreAuthorize("hasRole('CUSTOMER')")`.
+    * Extended `BankingService` with `findAccountsByCustomer(UUID customerId)` returning pure `CustomerAccountView` records (`accountId`, `maskedAccountNumber`, `currency`, `status`, `availableBalance`, `reservedAmount`, `totalBalance`).
+    * Exposes `CustomerAccountResponse` DTO with masked account numbers (`****XXXX`) and calculated total balances. Strictly excludes JPA entities, reservation tokens, and database plumbing.
+  * **Customer Payment History API (`GET /api/v1/portal/payments?page=0&size=20`)**:
+    * Added paginated payment history endpoint to `PaymentPortalController` returning `PagedResponse<CustomerPaymentResponse>`.
+    * Implemented database-level pagination in `PaymentRepository.findBySourceAccountIdIn(..., Pageable)` ordered by `createdAt DESC, paymentId DESC`.
+    * Customer identity is resolved from authenticated principal (`Authentication.getName()`) and constrained strictly to accounts owned by that customer in `banking.account`. Returns empty page if customer owns no accounts or payments.
+    * Beneficiary account numbers are consistently masked (`****6819`), and all internal tokens/ledger IDs are omitted.
+  * **Browser-Compatible Authentication, CSRF & CORS**:
+    * Preserved CSRF protection across all state-changing endpoints without disabling it or exempting `/api/**`.
+    * Configured `CookieCsrfTokenRepository.withHttpOnlyFalse()` with `SpaCsrfTokenRequestHandler` (delegating attribute handling to `XorCsrfTokenRequestAttributeHandler` and resolving raw header tokens via `X-XSRF-TOKEN`).
+    * Implemented `CsrfCookieFilter` (`OncePerRequestFilter`) ensuring deferred tokens are evaluated and committed to the `XSRF-TOKEN` cookie on downstream requests.
+    * Created lightweight `CsrfController` exposing `GET /api/v1/portal/csrf` and `GET /api/v1/auth/csrf` returning `{ "token": "...", "headerName": "X-XSRF-TOKEN", "parameterName": "_csrf" }` and setting the cookie.
+    * Configured Spring Security CORS filter bean with configurable allowed origins (`crosspaynet.security.cors.allowed-origins: ["http://localhost:3000"]`), allowed methods (`GET`, `POST`, `PUT`, `DELETE`, `OPTIONS`), allowed headers (`Authorization`, `Content-Type`, `X-XSRF-TOKEN`, `X-Requested-With`), and `allowCredentials(true)`.
+  * **Local Demo Data Initializer (`LocalDemoDataInitializer`)**:
+    * Created idempotent seeder under `@Profile("local")` gated by `crosspaynet.demo-data.enabled: true`.
+    * Pre-seeds demo customer with ID derived deterministically from username `"customer"` (`UUID.nameUUIDFromBytes("customer".getBytes(UTF_8))`).
+    * Opens an active USD account with $10,000 initial balance and registers a correspondent route for `DBEUMM21XXX` / `USD`.
+  * **Verification & Test Suite**:
+    * Added `CustomerAccountControllerSecurityTest` (4 tests) and `CustomerAccountControllerIntegrationTest` (1 test).
+    * Added `PaymentPortalControllerSecurityTest` (15 tests) and `PaymentPortalControllerIntegrationTest` (7 tests).
+    * Added `BrowserSecurityIntegrationTest` (6 tests) verifying CSRF cookie generation, rejection of requests without CSRF, rejection of invalid CSRF, acceptance of valid CSRF, and CORS preflight handling.
+    * Added `LocalDemoDataInitializerTest` (1 test) verifying idempotent startup seeding.
+    * Full repository test suite executed: **441 tests run, 0 failures, 0 errors, 0 skipped**.
+
+---
+
 ## 2026-10-31 — Checkpoint 10B: Docker Compose Kafka & Reproducible Local Setup — *Implemented Locally (Pending Acceptance Review)*
 
 * **Scope**: Established a reproducible, zero-friction local development environment and runtime health observability for CrossPayNet:
