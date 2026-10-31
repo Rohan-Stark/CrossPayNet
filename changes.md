@@ -4,6 +4,36 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
+## 2026-10-31 — Checkpoint 10A: Customer Payment REST API — *Implemented Locally (Pending Acceptance Review)*
+
+* **Scope**: Exposed customer-facing payment initiation and query capabilities through secured REST endpoints:
+  * **Target Endpoints**:
+    * `POST /api/v1/portal/payments`: Initiate a cross-border payment on behalf of the authenticated customer.
+    * `GET /api/v1/portal/payments/{paymentId}`: Retrieve status and masked details of an authenticated customer's payment.
+  * **Security, Identity Resolution & Anti-Enumeration**:
+    * Protected by `@PreAuthorize("hasRole('CUSTOMER')")` at class level on `PaymentPortalController`.
+    * Unauthenticated requests are rejected with `401 Unauthorized`.
+    * Non-customer roles (`ROLE_OPERATIONS`, `ROLE_ADMIN`, `ROLE_COMPLIANCE`, `ROLE_TELLER`) receive `403 Forbidden`.
+    * Authenticated customer identity is resolved strictly from `Authentication.getName()` principal UUID and validated against debit account ownership in `banking.account` via `SecuredPaymentPortalService` (calling `BankingService.isAccountOwnedBy`). Source account mismatch returns `403 Forbidden`.
+    * Privacy-safe anti-enumeration policy: If a customer attempts to query another customer's payment on `GET /api/v1/portal/payments/{paymentId}`, `PaymentPortalController` catches the resulting `AccessDeniedException` and raises `PaymentNotFoundException`, returning a uniform `404 Not Found` to prevent valid payment UUID discovery.
+  * **Contracts, DTOs & Masking (`com.crosspaynet.security.portal.web`)**:
+    * `InitiatePaymentRequest`: Strongly validated input DTO for payment instructions (`sourceAccountId`, `paymentReference`, `amount`, `currency`, `beneficiaryName`, `beneficiaryAccountNumber`, `beneficiaryBankBic`) with strict positive amount and supported currency enforcement.
+    * `CustomerPaymentResponse`: Customer-facing representation exposing payment lifecycle status, reason codes, timestamps, and payment reference. Automatically masks `beneficiaryAccountNumber` using `DataMasker.maskAccountNumber(...)` (e.g. `****6819`), and completely excludes internal technical plumbing (`reservationToken`, `ledgerTransactionId`, `routeReference`, `externalDispatchReference`).
+    * `ApiErrorResponse`: Standardized JSON error DTO (`timestamp`, `status`, `error`, `message`, `path`).
+    * `PaymentPortalExceptionHandler`: `@RestControllerAdvice` mapping domain and security exceptions to RFC-standard HTTP statuses (`409 Conflict` for reference conflicts, `404 Not Found` for missing/inaccessible payments, `400 Bad Request` for validation failures and type mismatches, `403 Forbidden` for role/ownership violations, and sanitized `500 Internal Server Error`).
+  * **HTTP Semantics & Idempotency**:
+    * `POST /api/v1/portal/payments` returns `201 Created` with `Location: /api/v1/portal/payments/{paymentId}` header.
+    * Exact identical retries return `201 Created` with the existing payment representation without duplicate fund reservations.
+    * Reused payment references with conflicting parameters return `409 Conflict`.
+  * **Architecture & Modulith Boundary Verification**:
+    * `SecurityModulithArchitectureTest`: Verified Spring Modulith boundaries and enforced ArchUnit rule that `com.crosspaynet.security.portal.web` controllers must not directly access persistence layers or JPA repositories, strictly delegating through `SecuredPaymentPortalService`.
+  * **Tests & Verification**:
+    * `PaymentPortalControllerSecurityTest`: 9 MockMvc security tests verifying 401 unauthenticated, 403 non-customer roles, 201 Created with Location header and masked representation, 409 Conflict on reference collisions, 400 Bad Request on invalid payloads, 200 OK on GET, 404 Not Found on foreign payments, 404 Not Found on unknown payments, and 400 Bad Request on malformed UUIDs.
+    * `PaymentPortalControllerIntegrationTest`: 6 end-to-end integration tests with PostgreSQL 18 and Apache Kafka Testcontainers verifying full initiation-to-query lifecycle, Location header navigation, database balance reservation integrity, conflict-safe idempotent replays, 409 conflict rejection on reused references, 403 prevention of cross-account initiation, 404 privacy enforcement on foreign payment queries, and 201 Created with `REJECTED (INSUFFICIENT_FUNDS)` on overdrawn initiation.
+    * Total 17 Checkpoint 10A tests and full 12-test security regression suite passing with 0 failures, 0 errors.
+
+---
+
 ## 2026-10-28 — Phase 9B Checkpoint 3: Discrepancy Observation History REST API — *Implemented Locally (Pending Acceptance Review)*
 
 * **Scope**: Exposed historical discrepancy observations through a secured, read-only REST endpoint:
