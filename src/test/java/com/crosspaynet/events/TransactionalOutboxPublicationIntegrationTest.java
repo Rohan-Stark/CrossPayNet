@@ -30,7 +30,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@SpringBootTest
+@SpringBootTest(properties = "spring.modulith.events.jdbc.schema=system")
 @Import({PostgresTestContainerConfig.class, KafkaTestContainerConfig.class})
 class TransactionalOutboxPublicationIntegrationTest {
 

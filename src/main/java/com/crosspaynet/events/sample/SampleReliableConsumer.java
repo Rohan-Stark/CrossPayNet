@@ -9,11 +9,13 @@ import com.crosspaynet.events.infrastructure.persistence.SampleConsumerEffectEnt
 import com.crosspaynet.events.infrastructure.persistence.SampleConsumerEffectRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
@@ -53,8 +55,12 @@ public class SampleReliableConsumer {
             topics = EventsModuleConfiguration.TOPIC_FUNDS_RESERVED,
             groupId = CONSUMER_GROUP
     )
-    public void onFundsReserved(String payload) throws Exception {
+    public void onFundsReserved(ConsumerRecord<String, Object> record) throws Exception {
         invocationCount.incrementAndGet();
+        Object raw = record != null ? record.value() : null;
+        String payload = raw instanceof byte[] bytes
+                ? new String(bytes, StandardCharsets.UTF_8)
+                : (raw != null ? raw.toString() : null);
         log.debug("SampleReliableConsumer received message payload length: {}", payload != null ? payload.length() : 0);
 
         JsonNode rootNode = objectMapper.readTree(payload);

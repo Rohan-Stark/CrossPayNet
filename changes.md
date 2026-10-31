@@ -4,6 +4,34 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
+## 2026-10-31 — Checkpoint 10B: Docker Compose Kafka & Reproducible Local Setup — *Implemented Locally (Pending Acceptance Review)*
+
+* **Scope**: Established a reproducible, zero-friction local development environment and runtime health observability for CrossPayNet:
+  * **Multi-Container Infrastructure (`docker-compose.yml`)**:
+    * **PostgreSQL 18**: Configured official `postgres:18` matching Testcontainers, using named volume `pgdata:/var/lib/postgresql`, healthcheck probe via `pg_isready -U ${POSTGRES_USER:-crosspaynet_user} -d ${POSTGRES_DB:-crosspaynet}`, and configurable host port mapping `${POSTGRES_PORT:-5432}:5432` to eliminate local port conflicts.
+    * **Apache Kafka 3.8.0 (KRaft mode)**: Configured official `apache/kafka:3.8.0` in pure KRaft mode (no ZooKeeper required), aligned with Testcontainers configuration. Configured dual listeners: `PLAINTEXT://${KAFKA_ADVERTISED_HOST:-localhost}:${KAFKA_PORT:-9092}` for host processes and `INTERNAL://kafka:29092` for in-compose services. Added broker readiness healthcheck via `/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092` with `service_healthy` startup ordering.
+  * **Configuration & Profiles (`application-local.yml` & `application.yml`)**:
+    * Created dedicated `src/main/resources/application-local.yml` profile configuring developer-friendly simulator defaults (`show-sql: true`, `format_sql: true`, default credentials).
+    * Updated base `src/main/resources/application.yml` with fallback environment property expressions (`${SPRING_DATASOURCE_URL:...}`, `${SPRING_KAFKA_BOOTSTRAP_SERVERS:...}`) and disabled verbose SQL logging for standard/test profiles.
+    * Added `spring-boot-starter-flyway` dependency to `pom.xml` ensuring runtime Spring Boot automatically executes all 18 Flyway schema migrations on startup.
+    * Added JVM default timezone normalization (`TimeZone.setDefault(TimeZone.getTimeZone("UTC"))`) in `CrossPayNetApplication.main(args)` preventing Windows host JVM timezone mismatch with PostgreSQL 18 container parameters.
+  * **Health Probes & Actuator Integration (`spring-boot-starter-actuator`)**:
+    * Added `spring-boot-starter-actuator` to `pom.xml`.
+    * Configured actuator web exposure for `health` and `info` endpoints, enabling Kubernetes-compatible liveness and readiness probes (`/actuator/health/liveness`, `/actuator/health/readiness`).
+    * Configured `management.health.kafka.enabled: false` to ensure transient broker blips do not trigger destructive application crash-loops while the transactional outbox safely buffers events in PostgreSQL.
+    * Explicitly permitted unauthenticated access to `/actuator/health` and `/actuator/health/**` in `SecurityConfiguration.java` while preserving strict authentication on all business and operations APIs.
+  * **Consumer Reliability & Modulith Coexistence**:
+    * Updated `SampleReliableConsumer` to accept `ConsumerRecord<String, Object> record` directly, eliminating `MismatchedInputException` during Jackson message conversion under `spring-modulith-events-kafka`'s `ByteArrayJsonMessageConverter`.
+    * Aligned `KafkaReliabilityAndConsumerIntegrationTest` with Modulith JDBC schema property (`spring.modulith.events.jdbc.schema=system`) and byte-payload serialization.
+  * **Local Development Artifacts & Documentation**:
+    * Created `.env.example` documenting all configuration variables with clear security warnings against committing real credentials.
+    * Expanded `README.md` with complete step-by-step Quickstart guide, Docker Compose life-cycle commands, port configuration, Actuator health verification, and troubleshooting instructions.
+  * **Verification**:
+    * Full repository test suite executed: **422 tests run, 0 failures, 0 errors, 0 skipped** across all modules.
+    * Architecture test suite executed: **30 tests run, 0 failures, 0 errors, 0 skipped** verifying all module boundaries.
+
+---
+
 ## 2026-10-31 — Checkpoint 10A: Customer Payment REST API — *Implemented Locally (Pending Acceptance Review)*
 
 * **Scope**: Exposed customer-facing payment initiation and query capabilities through secured REST endpoints:

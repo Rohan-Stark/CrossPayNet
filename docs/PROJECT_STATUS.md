@@ -1,7 +1,7 @@
 # Project Status
 
 Current Phase: Phase 10 — Application APIs & Customer Experience
-Current Subphase: Checkpoint 10A Implemented Locally (Customer Payment REST API)
+Current Subphase: Checkpoint 10B Implemented Locally (Docker Compose Kafka & Reproducible Local Setup)
 
 ## Completed Phases
 * Phase 0 — Engineering Constitution
@@ -59,9 +59,10 @@ Current Subphase: Checkpoint 10A Implemented Locally (Customer Payment REST API)
 
 * **Phase 10 — Application APIs & Customer Experience** ⏳ (In Progress)
   * **Checkpoint 10A (Customer Payment REST API)**: Secured Spring Web MVC endpoints under `/api/v1/portal/payments` protected by `@PreAuthorize("hasRole('CUSTOMER')")`, delegating strictly to `SecuredPaymentPortalService` for debit account ownership verification, returning `201 Created` with `Location: /api/v1/portal/payments/{paymentId}` header, masking sensitive beneficiary account numbers with `DataMasker`, omitting internal technical metadata (`reservationToken`, `ledgerTransactionId`, `routeReference`, `externalDispatchReference`), mapping debit account ownership and payment cross-access violations to `404 Not Found` (anti-enumeration privacy policy) and `403 Forbidden`, and providing conflict-safe idempotency via `409 Conflict`.
+  * **Checkpoint 10B (Docker Compose Kafka & Reproducible Local Setup)**: Reproducible local multi-container development environment with PostgreSQL 18 and Apache Kafka 3.8.0 in KRaft mode (no ZooKeeper), healthcheck probes (`pg_isready` and `kafka-broker-api-versions.sh`), configurable host port bindings via environment variables, Spring Boot Actuator `/actuator/health` probe integration, `.env.example` template with security warnings, dedicated `application-local.yml` profile, and robust Kafka consumer payload conversion (`ConsumerRecord<String, Object>`) ensuring 100% test reliability across all 422 repository tests.
 
 ## Current/Next Phase
-* **Phase 10 Checkpoint 10A — Customer Payment REST API** (Implemented locally, awaiting review)
+* **Phase 10 Checkpoint 10B — Docker Compose Kafka & Reproducible Local Setup** (Implemented locally, awaiting review)
 
 ## Upcoming Phases
 * Phase 9 — Observability & Operations
@@ -84,5 +85,5 @@ Current Subphase: Checkpoint 10A Implemented Locally (Customer Payment REST API)
 * **Phase 10A (Customer Payment REST API)**: Secured REST interface for customer payments under `/api/v1/portal/payments` protected with `ROLE_CUSTOMER`, strict customer debit ownership enforcement via `SecuredPaymentPortalService`, uniform 404 anti-enumeration for foreign/inaccessible payments, and masked account presentation without internal system plumbing.
 
 ## Verification Status
-* **Test Suite Status**: 17 Checkpoint 10A tests passing (9 security MockMvc tests, 6 end-to-end PostgreSQL + Kafka Testcontainers integration tests, 2 Modulith and architecture boundary tests), plus 100% full regression pass across all 406 existing repository tests.
+* **Test Suite Status**: 422 tests passing with 0 failures, 0 errors, and 0 skipped (including all 30 ArchUnit architecture tests, 17 Checkpoint 10A tests, and full modular integration test suites).
 * **Chronological Change Log**: See root [`changes.md`](../changes.md) for detailed checkpoint and corrective commit records.

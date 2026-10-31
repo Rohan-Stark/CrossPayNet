@@ -39,6 +39,109 @@ CrossPayNet is implemented as an **Evolutionary Modular Monolith** (Java 25 LTS,
 * AI-based anomaly detection
 * RAG-based Payment Operations Copilot
 
+## Quickstart & Local Development
+
+CrossPayNet includes a reproducible, production-practical local container environment using Docker Compose for PostgreSQL 18 and Apache Kafka 3.8.0 (KRaft mode).
+
+### Prerequisites
+* **Java**: JDK 25 LTS installed and on `PATH`
+* **Docker & Docker Compose**: Docker Engine v24+ with Compose v2
+* **Build Tool**: Maven 3.9+ or the included Maven Wrapper (`./mvnw` / `.\mvnw.cmd`)
+
+### Step 1: Clone the Repository
+```bash
+git clone https://github.com/crosspaynet/crosspaynet.git
+cd crosspaynet
+```
+
+### Step 2: Configure Environment Variables
+Copy the documented template to create your local `.env` file:
+```bash
+cp .env.example .env
+```
+*(On Windows PowerShell: `Copy-Item .env.example .env`)*
+
+Review `.env` to verify port assignments and credentials. The default configuration connects to PostgreSQL on port `5432` and Kafka on port `9092`.
+
+### Step 3: Start Infrastructure Services
+Start PostgreSQL and Kafka in the background:
+```bash
+docker compose up -d
+```
+Verify both containers report healthy status:
+```bash
+docker compose ps
+```
+Expected output:
+* `crosspaynet-db` (PostgreSQL 18) — `Up (healthy)` on `0.0.0.0:5432->5432`
+* `crosspaynet-kafka` (Apache Kafka 3.8.0 KRaft) — `Up (healthy)` on `0.0.0.0:9092->9092`
+
+### Step 4: Run the Application
+Launch the Spring Boot application using the `local` profile:
+```bash
+# Linux / macOS
+./mvnw spring-boot:run -Dspring-boot.run.profiles=local
+
+# Windows PowerShell
+.\mvnw.cmd spring-boot:run "-Dspring-boot.run.profiles=local"
+```
+On startup, Flyway automatically applies all 18 database migrations (`V1` through `V18`), and the application connects to Kafka.
+
+### Step 5: Verify Application Health
+Verify that the Spring Boot Actuator health and probe endpoints report `UP`:
+```bash
+# Overall Health
+curl -s http://localhost:8080/actuator/health
+
+# Readiness Probe
+curl -s http://localhost:8080/actuator/health/readiness
+
+# Liveness Probe
+curl -s http://localhost:8080/actuator/health/liveness
+```
+Expected response:
+```json
+{"groups":["liveness","readiness"],"status":"UP"}
+```
+
+### Useful Operational Commands
+```bash
+# View live logs from infrastructure containers
+docker compose logs -f
+
+# View logs from a specific container (e.g., Kafka)
+docker compose logs -f kafka
+
+# Stop containers while preserving data volumes
+docker compose down
+
+# Stop containers and wipe database/Kafka volumes (clean reset)
+docker compose down -v
+```
+
+### Troubleshooting
+
+* **Host Port Conflict on Port 5432 (PostgreSQL)**:
+  If a native PostgreSQL instance is already running on port `5432`, adjust `POSTGRES_PORT` in `.env`:
+  ```bash
+  POSTGRES_PORT=5434
+  SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5434/crosspaynet
+  ```
+  Restart containers with `docker compose up -d`.
+
+* **Host Port Conflict on Port 9092 (Kafka)**:
+  If port `9092` is already in use, update `KAFKA_PORT` in `.env`:
+  ```bash
+  KAFKA_PORT=9094
+  SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:9094
+  ```
+  Restart containers with `docker compose up -d`.
+
+* **Kafka Broker Rebalancing / Consumer Assignment**:
+  On initial container boot, Kafka KRaft initialization requires 5–10 seconds. The Compose healthcheck gates readiness via `kafka-broker-api-versions.sh`. If running in resource-constrained environments, allow a few seconds for partition assignment.
+
+---
+
 ## Validation
 Run the full unit, architecture, PostgreSQL 18, and Apache Kafka Testcontainers integration test suite with:
 ```powershell

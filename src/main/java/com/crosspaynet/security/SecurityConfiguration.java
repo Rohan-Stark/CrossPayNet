@@ -24,7 +24,7 @@ public class SecurityConfiguration {
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/actuator/health", "/error").permitAll()
+                        .requestMatchers("/actuator/health", "/actuator/health/**", "/error").permitAll()
                         .anyRequest().authenticated()
                 )
                 .httpBasic(Customizer.withDefaults())
@@ -40,16 +40,25 @@ public class SecurityConfiguration {
 
     @Bean
     public UserDetailsService userDetailsService(
-            @Value("${crosspaynet.security.users.customer.username:customer}") String customerUser,
-            @Value("${crosspaynet.security.users.customer.password:customer123!}") String customerPass,
-            @Value("${crosspaynet.security.users.compliance.username:compliance}") String complianceUser,
-            @Value("${crosspaynet.security.users.compliance.password:compliance123!}") String compliancePass,
-            @Value("${crosspaynet.security.users.operations.username:operations}") String operationsUser,
-            @Value("${crosspaynet.security.users.operations.password:operations123!}") String operationsPass,
-            @Value("${crosspaynet.security.users.admin.username:admin}") String adminUser,
-            @Value("${crosspaynet.security.users.admin.password:admin123!}") String adminPass,
+            @Value("${crosspaynet.security.users.customer.username}") String customerUser,
+            @Value("${crosspaynet.security.users.customer.password}") String customerPass,
+            @Value("${crosspaynet.security.users.compliance.username}") String complianceUser,
+            @Value("${crosspaynet.security.users.compliance.password}") String compliancePass,
+            @Value("${crosspaynet.security.users.operations.username}") String operationsUser,
+            @Value("${crosspaynet.security.users.operations.password}") String operationsPass,
+            @Value("${crosspaynet.security.users.admin.username}") String adminUser,
+            @Value("${crosspaynet.security.users.admin.password}") String adminPass,
             PasswordEncoder passwordEncoder
     ) {
+        validateCredential("crosspaynet.security.users.customer.username", customerUser);
+        validateCredential("crosspaynet.security.users.customer.password", customerPass);
+        validateCredential("crosspaynet.security.users.compliance.username", complianceUser);
+        validateCredential("crosspaynet.security.users.compliance.password", compliancePass);
+        validateCredential("crosspaynet.security.users.operations.username", operationsUser);
+        validateCredential("crosspaynet.security.users.operations.password", operationsPass);
+        validateCredential("crosspaynet.security.users.admin.username", adminUser);
+        validateCredential("crosspaynet.security.users.admin.password", adminPass);
+
         UserDetails customer = User.builder()
                 .passwordEncoder(passwordEncoder::encode)
                 .username(customerUser)
@@ -79,5 +88,13 @@ public class SecurityConfiguration {
                 .build();
 
         return new InMemoryUserDetailsManager(customer, compliance, operations, admin);
+    }
+
+    private static void validateCredential(String propertyName, String value) {
+        if (value == null || value.trim().isEmpty()) {
+            throw new IllegalStateException("Missing required security configuration: '" + propertyName
+                    + "' must not be blank. In local development, activate the 'local' profile (--spring.profiles.active=local). "
+                    + "In production, configure non-empty environment variables.");
+        }
     }
 }

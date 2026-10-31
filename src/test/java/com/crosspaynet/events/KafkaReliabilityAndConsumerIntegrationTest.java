@@ -50,7 +50,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
-@SpringBootTest
+@SpringBootTest(properties = "spring.modulith.events.jdbc.schema=system")
 @Import({PostgresTestContainerConfig.class, KafkaTestContainerConfig.class})
 class KafkaReliabilityAndConsumerIntegrationTest {
 
@@ -109,7 +109,7 @@ class KafkaReliabilityAndConsumerIntegrationTest {
                 """.formatted(eventId, Instant.now());
 
         // 1. Send first message
-        kafkaTemplate.send(EventsModuleConfiguration.TOPIC_FUNDS_RESERVED, eventId.toString(), jsonPayload);
+        kafkaTemplate.send(EventsModuleConfiguration.TOPIC_FUNDS_RESERVED, eventId.toString(), jsonPayload.getBytes(StandardCharsets.UTF_8));
 
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
             assertThat(sampleConsumer.getProcessedCount()).isEqualTo(1);
@@ -120,7 +120,7 @@ class KafkaReliabilityAndConsumerIntegrationTest {
         });
 
         // 2. Send identical message (duplicate delivery)
-        kafkaTemplate.send(EventsModuleConfiguration.TOPIC_FUNDS_RESERVED, eventId.toString(), jsonPayload);
+        kafkaTemplate.send(EventsModuleConfiguration.TOPIC_FUNDS_RESERVED, eventId.toString(), jsonPayload.getBytes(StandardCharsets.UTF_8));
 
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
             assertThat(sampleConsumer.getInvocationCount()).isGreaterThanOrEqualTo(2);
@@ -151,7 +151,7 @@ class KafkaReliabilityAndConsumerIntegrationTest {
         // Configure transient failure on first invocation
         sampleConsumer.setSimulateTransientFailure(true);
 
-        kafkaTemplate.send(EventsModuleConfiguration.TOPIC_FUNDS_RESERVED, eventId.toString(), jsonPayload);
+        kafkaTemplate.send(EventsModuleConfiguration.TOPIC_FUNDS_RESERVED, eventId.toString(), jsonPayload.getBytes(StandardCharsets.UTF_8));
 
         // Bounded retry will retry after 1s backoff and succeed
         await().atMost(Duration.ofSeconds(15)).untilAsserted(() -> {
@@ -179,7 +179,7 @@ class KafkaReliabilityAndConsumerIntegrationTest {
                 }
                 """.formatted(eventId, Instant.now());
 
-        kafkaTemplate.send(EventsModuleConfiguration.TOPIC_FUNDS_RESERVED, eventId.toString(), poisonPayload);
+        kafkaTemplate.send(EventsModuleConfiguration.TOPIC_FUNDS_RESERVED, eventId.toString(), poisonPayload.getBytes(StandardCharsets.UTF_8));
 
         // Read from DLT topic to verify parking
         Consumer<String, String> consumer = createTestConsumer(EventsModuleConfiguration.TOPIC_FUNDS_RESERVED + EventsModuleConfiguration.DLT_SUFFIX);

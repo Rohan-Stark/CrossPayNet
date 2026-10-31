@@ -3,9 +3,9 @@ spring:
     name: crosspaynet
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/crosspaynet
-    username: crosspaynet_user
-    password: crosspaynet_password
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/crosspaynet}
+    username: ${SPRING_DATASOURCE_USERNAME:crosspaynet_user}
+    password: ${SPRING_DATASOURCE_PASSWORD:crosspaynet_password}
     driver-class-name: org.postgresql.Driver
 
   jpa:
@@ -13,10 +13,10 @@ spring:
     # Flyway is the authoritative schema evolution tool
     hibernate:
       ddl-auto: none
-    show-sql: true
+    show-sql: false
     properties:
       hibernate:
-        format_sql: true
+        format_sql: false
 
   flyway:
     enabled: true
@@ -27,7 +27,7 @@ spring:
     bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
       acks: all
       properties:
         enable.idempotence: true
@@ -46,6 +46,8 @@ spring:
 
   modulith:
     events:
+      kafka:
+        enable-json: false
       republish-outstanding-events-on-restart: true
       jdbc:
         # Schema owning the event publication table
@@ -54,6 +56,22 @@ spring:
         # since Flyway will own the creation of the system schema and table.
         schema-initialization:
           enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
+  endpoint:
+    health:
+      show-details: when_authorized
+      probes:
+        enabled: true
+  health:
+    # Transient Kafka network interruptions must not cause destructive application restarts
+    # The transactional outbox safely buffers events in PostgreSQL until Kafka reconnects
+    kafka:
+      enabled: false
 
 crosspaynet:
   security:
