@@ -51,12 +51,24 @@ class LocalDemoDataInitializerTest {
         assertThat(account.totalBalance().getAmount()).isEqualByComparingTo(new BigDecimal("10000.0000"));
         assertThat(account.status()).isEqualTo("ACTIVE");
 
-        // Run 2: second invocation must be completely idempotent (no duplicate account, no reset balance)
+        // Reserve funds (simulating customer spending/reserving money on the account)
+        bankingService.reserveFunds(
+                account.accountId(),
+                new com.crosspaynet.common.money.Money(
+                        new BigDecimal("1500.0000"),
+                        new com.crosspaynet.common.money.Currency("USD")
+                ),
+                com.crosspaynet.banking.contracts.PaymentReference.of("PAY-DEMO-SPEND-001")
+        );
+
+        // Run 2: second invocation must be completely idempotent (no duplicate account, no reset of post-payment balance)
         initializer.initializeDemoData();
 
         List<CustomerAccountView> accountsAfterSecondRun = bankingService.findAccountsByCustomer(customerId);
         assertThat(accountsAfterSecondRun).hasSize(1);
         assertThat(accountsAfterSecondRun.get(0).accountId()).isEqualTo(account.accountId());
-        assertThat(accountsAfterSecondRun.get(0).availableBalance().getAmount()).isEqualByComparingTo(new BigDecimal("10000.0000"));
+        assertThat(accountsAfterSecondRun.get(0).availableBalance().getAmount()).isEqualByComparingTo(new BigDecimal("8500.0000"));
+        assertThat(accountsAfterSecondRun.get(0).reservedAmount().getAmount()).isEqualByComparingTo(new BigDecimal("1500.0000"));
+        assertThat(accountsAfterSecondRun.get(0).totalBalance().getAmount()).isEqualByComparingTo(new BigDecimal("10000.0000"));
     }
 }

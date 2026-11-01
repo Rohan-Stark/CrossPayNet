@@ -122,9 +122,21 @@ docker compose down -v
 ### Local Demo Data & Frontend Integration
 
 When started with the `local` profile (`-Dspring-boot.run.profiles=local`), the application automatically seeds demo records via `LocalDemoDataInitializer` (`crosspaynet.demo-data.enabled: true`):
-* **Demo Customer User**: Username `customer` (Role: `ROLE_CUSTOMER`, password `customer` in dev in-memory auth).
+* **Demo Customer User**: Username `customer` (Role: `ROLE_CUSTOMER`, password `customer123!` in local dev in-memory auth).
 * **Demo USD Account**: Active account pre-funded with `$10,000.0000 USD`.
-* **Correspondent Route**: Active route for BIC `DBEUMM21XXX` in `USD`.
+* **Correspondent Route**: Active route (`ROUTE-LOCAL-DEUT-USD`) for BIC `DEUTDEFFXXX` in `USD`.
+
+### Step 6: Start the Next.js Customer Portal (`apps/web`)
+With the Spring Boot backend running on `http://localhost:8080`, start the Next.js Customer Portal frontend:
+```bash
+cd apps/web
+cp .env.example .env.local
+npm install
+npm run dev
+```
+*(On Windows PowerShell: `Copy-Item .env.example .env.local`)*
+
+Open `http://localhost:3000` in your browser and sign in with the local demo credentials (`customer` / `customer123!`).
 
 #### Available Portal APIs
 * `GET /api/v1/portal/csrf`: Returns active CSRF token metadata and sets `XSRF-TOKEN` cookie (`HttpOnly=false`).

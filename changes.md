@@ -4,7 +4,29 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
-## 2026-10-31 — Checkpoint 10C: Frontend Integration Prerequisites — *Implemented Locally (Pending Acceptance Review)*
+## 2026-11-01 — Checkpoint 11A: Next.js Customer Portal Frontend MVP — *Implemented Locally (Pending Acceptance Review)*
+
+* **Scope**: Created the first functional customer-facing frontend for CrossPayNet under `apps/web` using Next.js 16 (App Router), React 19, TypeScript (strict mode), Tailwind CSS v4, and Lucide React:
+  * **Centralized API Client, CSRF & In-Memory Auth (`apps/web/src/lib/`)**:
+    * `types.ts`: Strict TypeScript contracts mirroring backend DTOs (`CustomerAccountResponse`, `CustomerPaymentResponse`, `PagedResponse<T>`, `InitiatePaymentRequest`, `CsrfTokenResponse`, `ApiErrorResponse`, `PaymentStatus`, `SupportedCurrency`).
+    * `csrf.ts` & `api-client.ts`: Centralized typed `fetch` wrapper (`portalApi`) using `NEXT_PUBLIC_API_BASE_URL` (default `http://localhost:8080`), sending `credentials: "include"` and in-memory HTTP Basic `Authorization` headers, bootstrapping CSRF via `GET /api/v1/portal/csrf`, and automatically attaching `X-XSRF-TOKEN` on state-changing requests (`POST`, `PUT`, `DELETE`, `PATCH`). Maps `400`, `401`, `403`, `404`, and `409` responses into structured `PortalApiError` instances.
+    * `auth-context.tsx`: React Context storing customer credentials strictly in memory (`useState`). Credentials are never persisted to `localStorage`, `sessionStorage`, `IndexedDB`, URLs, or console logs.
+    * `formatters.ts`: Currency-aware monetary formatting (`USD`, `EUR`, `GBP`, `JPY`, `INR`, `SGD`, `CAD`, `CHF`, `AUD`), UTC timestamp formatters, SWIFT BIC validation (`8` or `11` alphanumeric characters), and per-currency decimal scale validation.
+  * **Customer Portal Routes & Components (`apps/web/src/app/` & `src/components/`)**:
+    * `/login`: Simulator login page with pre-fillable local demo credentials (`customer` / `customer123!`), verifying authentication against `GET /api/v1/portal/accounts` and bootstrapping CSRF via `GET /api/v1/portal/csrf`.
+    * `/portal/dashboard`: Account overview displaying `AccountBalanceCard` components (`availableBalance`, `reservedAmount`, `totalBalance`, `maskedAccountNumber`, `status`), honest summary metrics (active accounts, available/reserved liquidity, current-page payment counts), and `RecentPayments`.
+    * `/portal/payments`: Paginated payment history table (`GET /api/v1/portal/payments?page=0&size=20`) with current-page reference search, lifecycle status filter, and page navigation controls.
+    * `/portal/payments/new`: Cross-border payment initiation form (`PaymentForm`) with source account selector, live balance display, auto-generated or custom payment reference, beneficiary details, BIC and currency-scale validation, `ConfirmationDialog` before submission, and redirect to `/portal/payments/[paymentId]?initiated=1`. Handles `201 Created` payments that immediately transition to `REJECTED` (e.g. `INSUFFICIENT_FUNDS`) as well as `409 Conflict` reference collisions.
+    * `/portal/payments/[paymentId]`: Payment tracking detail view with `PaymentStateTimeline` accurately modeling all 9 backend states (`VALIDATING`, `COMPLIANCE_HOLD`, `ROUTING`, `EXECUTING`, `PENDING_EXTERNAL`, `SETTLED`, `REJECTED`, `CANCELLED`, `FAILED`), manual refresh, masked beneficiary account display, and clean `404` anti-enumeration state.
+  * **Checkpoint 10C Follow-Up Improvements**:
+    * Updated `README.md` to align documented local demo credentials (`customer123!`) and seeded correspondent route BIC (`DEUTDEFFXXX` in `USD`) with `application-local.yml` and `LocalDemoDataInitializer`.
+    * Strengthened `LocalDemoDataInitializerTest` to reserve funds (`$1,500.0000 USD`) after initial startup seeding and verify that subsequent initializer runs preserve the updated available (`$8,500.0000`) and reserved (`$1,500.0000`) balances without resetting to `$10,000.0000`.
+  * **Verification**:
+    * Frontend typecheck (`npm run typecheck`), lint (`npm run lint`), test suite (`npm test`: 4 test files, 14 tests), and production build (`npm run build`) all passed with 0 errors.
+
+---
+
+## 2026-10-31 — Checkpoint 10C: Frontend Integration Prerequisites — *Accepted (`4e5644b`)*
 
 * **Scope**: Prepared the backend for Next.js frontend integration with customer account summaries, payment history, browser CSRF/CORS support, and demo data seeding:
   * **Customer Account Overview API (`GET /api/v1/portal/accounts`)**:

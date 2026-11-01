@@ -1,7 +1,7 @@
 # Project Status
 
-Current Phase: Phase 10 — Application APIs & Customer Experience
-Current Subphase: Checkpoint 10C Implemented Locally (Frontend Integration Prerequisites)
+Current Phase: Phase 11 — Customer Portal Frontend & Operations UI
+Current Subphase: Checkpoint 11A Implemented Locally (Next.js Customer Portal Frontend MVP)
 
 ## Completed Phases
 * Phase 0 — Engineering Constitution
@@ -57,13 +57,16 @@ Current Subphase: Checkpoint 10C Implemented Locally (Frontend Integration Prere
   * **Checkpoint 2 (Scheduled Reconciliation with ShedLock)**: Spring @Scheduled + ShedLock with PostgreSQL JDBC lock provider (`operations.shedlock`, `V18`), opt-in configurable scheduling (`crosspaynet.operations.reconciliation.scheduling.*`), graceful `OperationsConflictException` handling, and multi-instance concurrency protection.
   * **Checkpoint 3 (Discrepancy Observation History REST API)**: Secured read-only REST endpoint `GET /api/v1/operations/reconciliation/discrepancies/{discrepancyId}/observations` protected with `@PreAuthorize("hasAnyRole('OPERATIONS', 'ADMIN')")`, returning chronological audit observations (`observedAt ASC, observationId ASC`), bounded pagination (`page >= 0`, `size 1..100`), discrepancy existence verification (`404 Not Found` for unknown discrepancy; `200 OK` empty list for existing discrepancy with zero observations), DTO encapsulation (`ReconciliationDiscrepancyObservationResponse`), and preserving null details and historical provenance (`LIVE` / `LEGACY_RECONSTRUCTED`).
 
-* **Phase 10 — Application APIs & Customer Experience** ⏳ (In Progress)
+* **Phase 10 — Application APIs & Customer Experience** ✅ (Accepted)
   * **Checkpoint 10A (Customer Payment REST API)**: Secured Spring Web MVC endpoints under `/api/v1/portal/payments` protected by `@PreAuthorize("hasRole('CUSTOMER')")`, delegating strictly to `SecuredPaymentPortalService` for debit account ownership verification, returning `201 Created` with `Location: /api/v1/portal/payments/{paymentId}` header, masking sensitive beneficiary account numbers with `DataMasker`, omitting internal technical metadata (`reservationToken`, `ledgerTransactionId`, `routeReference`, `externalDispatchReference`), mapping debit account ownership and payment cross-access violations to `404 Not Found` (anti-enumeration privacy policy) and `403 Forbidden`, and providing conflict-safe idempotency via `409 Conflict`.
   * **Checkpoint 10B (Docker Compose Kafka & Reproducible Local Setup)**: Reproducible local multi-container development environment with PostgreSQL 18 and Apache Kafka 3.8.0 in KRaft mode (no ZooKeeper), healthcheck probes (`pg_isready` and `kafka-broker-api-versions.sh`), configurable host port bindings via environment variables, Spring Boot Actuator `/actuator/health` probe integration, `.env.example` template with security warnings, dedicated `application-local.yml` profile, and robust Kafka consumer payload conversion (`ConsumerRecord<String, Object>`) ensuring 100% test reliability across all 422 repository tests.
   * **Checkpoint 10C (Frontend Integration Prerequisites)**: Secured customer account overview API (`GET /api/v1/portal/accounts`), customer payment history API with pagination and masked beneficiary accounts (`GET /api/v1/portal/payments?page=0&size=20`), browser-compatible CSRF protection (`CookieCsrfTokenRepository` with `SpaCsrfTokenRequestHandler` and dedicated `GET /api/v1/portal/csrf` endpoint), configurable CORS support for SPA origins (`http://localhost:3000`), and reproducible local demo customer and route seeding via `LocalDemoDataInitializer` under `@Profile("local")` with 100% test coverage across all 441 repository tests.
 
+* **Phase 11 — Customer Portal Frontend & Operations UI** ⏳ (In Progress)
+  * **Checkpoint 11A (Next.js Customer Portal Frontend MVP)**: Functional, responsive Next.js 16 (App Router) customer portal under `apps/web` written in strict TypeScript and styled with Tailwind CSS v4. Connects to the Spring Boot backend (`http://localhost:8080`) using a centralized typed `fetch` API client with in-memory HTTP Basic credentials, automatic `X-XSRF-TOKEN` CSRF protection, and `credentials: "include"`. Implements `/login`, `/portal/dashboard`, `/portal/payments`, `/portal/payments/new` (with confirmation modal and client-side BIC/amount validation), and `/portal/payments/[paymentId]` (with honest 9-state workflow timeline and anti-enumeration handling), verified by 14 Vitest unit and component tests.
+
 ## Current/Next Phase
-* **Phase 10 Checkpoint 10C — Frontend Integration Prerequisites** (Implemented locally, awaiting review)
+* **Phase 11 Checkpoint 11A — Next.js Customer Portal Frontend MVP** (Implemented locally, awaiting review)
 
 ## Upcoming Phases
 * Phase 9 — Observability & Operations

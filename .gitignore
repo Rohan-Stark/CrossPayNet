@@ -26,6 +26,8 @@ build/
 .next/
 out/
 coverage/
+*.tsbuildinfo
+next-env.d.ts
 
 # Python (Future)
 __pycache__/
