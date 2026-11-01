@@ -27,7 +27,7 @@ spring:
     bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
       acks: all
       properties:
         enable.idempotence: true
@@ -47,7 +47,7 @@ spring:
   modulith:
     events:
       kafka:
-        enable-json: false
+        enable-json: true
       republish-outstanding-events-on-restart: true
       jdbc:
         # Schema owning the event publication table

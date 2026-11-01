@@ -63,10 +63,11 @@ Current Subphase: Checkpoint 11A Implemented Locally (Next.js Customer Portal Fr
   * **Checkpoint 10C (Frontend Integration Prerequisites)**: Secured customer account overview API (`GET /api/v1/portal/accounts`), customer payment history API with pagination and masked beneficiary accounts (`GET /api/v1/portal/payments?page=0&size=20`), browser-compatible CSRF protection (`CookieCsrfTokenRepository` with `SpaCsrfTokenRequestHandler` and dedicated `GET /api/v1/portal/csrf` endpoint), configurable CORS support for SPA origins (`http://localhost:3000`), and reproducible local demo customer and route seeding via `LocalDemoDataInitializer` under `@Profile("local")` with 100% test coverage across all 441 repository tests.
 
 * **Phase 11 — Customer Portal Frontend & Operations UI** ⏳ (In Progress)
-  * **Checkpoint 11A (Next.js Customer Portal Frontend MVP)**: Functional, responsive Next.js 16 (App Router) customer portal under `apps/web` written in strict TypeScript and styled with Tailwind CSS v4. Connects to the Spring Boot backend (`http://localhost:8080`) using a centralized typed `fetch` API client with in-memory HTTP Basic credentials, automatic `X-XSRF-TOKEN` CSRF protection, and `credentials: "include"`. Implements `/login`, `/portal/dashboard`, `/portal/payments`, `/portal/payments/new` (with confirmation modal and client-side BIC/amount validation), and `/portal/payments/[paymentId]` (with honest 9-state workflow timeline and anti-enumeration handling), verified by 14 Vitest unit and component tests.
+  * **Checkpoint 11A (Next.js Customer Portal Frontend MVP)** ✅ (Accepted: `b5709bb`): Functional, responsive Next.js 16 (App Router) customer portal under `apps/web` written in strict TypeScript and styled with Tailwind CSS v4. Connects to the Spring Boot backend (`http://localhost:8080`) using a centralized typed `fetch` API client with in-memory HTTP Basic credentials, automatic `X-XSRF-TOKEN` CSRF protection, and `credentials: "include"`. Implements `/login`, `/portal/dashboard`, `/portal/payments`, `/portal/payments/new` (with confirmation modal and client-side BIC/amount validation), and `/portal/payments/[paymentId]` (with honest 9-state workflow timeline and anti-enumeration handling), verified by 14 Vitest unit and component tests.
+  * **Kafka Outbox & Dead-Letter Publishing Reliability Fix**: Restored `ByteArraySerializer` + `spring.modulith.events.kafka.enable-json: true` for `EventEnvelope` JSON externalization, configured a dedicated `DelegatingByTypeSerializer` (`byte[]` and `String`) DLT `KafkaTemplate` for `DeadLetterPublishingRecoverer` in `EventsModuleConfiguration`, added `optional:file:.env[.properties]` import in `application-local.yml`, and strengthened `KafkaReliabilityAndConsumerIntegrationTest` across all 442 repository tests.
 
 ## Current/Next Phase
-* **Phase 11 Checkpoint 11A — Next.js Customer Portal Frontend MVP** (Implemented locally, awaiting review)
+* **Phase 11 Checkpoint 11B — Operations Dashboard Frontend** (Planned, awaiting authorization)
 
 ## Upcoming Phases
 * Phase 9 — Observability & Operations
@@ -89,5 +90,5 @@ Current Subphase: Checkpoint 11A Implemented Locally (Next.js Customer Portal Fr
 * **Phase 10A (Customer Payment REST API)**: Secured REST interface for customer payments under `/api/v1/portal/payments` protected with `ROLE_CUSTOMER`, strict customer debit ownership enforcement via `SecuredPaymentPortalService`, uniform 404 anti-enumeration for foreign/inaccessible payments, and masked account presentation without internal system plumbing.
 
 ## Verification Status
-* **Test Suite Status**: 422 tests passing with 0 failures, 0 errors, and 0 skipped (including all 30 ArchUnit architecture tests, 17 Checkpoint 10A tests, and full modular integration test suites).
+* **Test Suite Status**: 442 backend tests passing with 0 failures, 0 errors, and 0 skipped (`.\mvnw.cmd clean test`), plus 14 frontend Vitest tests passing in `apps/web`.
 * **Chronological Change Log**: See root [`changes.md`](../changes.md) for detailed checkpoint and corrective commit records.

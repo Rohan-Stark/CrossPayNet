@@ -4,7 +4,33 @@ Chronological record of verified engineering checkpoints and corrective updates 
 
 ---
 
-## 2026-11-01 — Checkpoint 11A: Next.js Customer Portal Frontend MVP — *Implemented Locally (Pending Acceptance Review)*
+## 2026-11-01 — Corrective Fix: Kafka Outbox EventEnvelope Serialization & Dead-Letter Publishing Reliability
+
+* **Root Cause**:
+  1. `EventsModuleConfiguration.eventExternalizationConfiguration()` maps `@Externalized` domain events (`FundsReserved`, `PaymentInstructionReceived`, `PaymentSentToNetwork`, `PaymentSettledEvent`) into `com.crosspaynet.events.contracts.EventEnvelope<T>` record instances.
+  2. In Checkpoint 10B (`4d3f69d`), `src/main/resources/application.yml` set `spring.kafka.producer.value-serializer: org.apache.kafka.common.serialization.StringSerializer` and `spring.modulith.events.kafka.enable-json: false`. That disabled Spring Modulith's `ByteArrayJsonMessageConverter` and caused `StringSerializer` to throw `SerializationException: Can't convert value of class com.crosspaynet.events.contracts.EventEnvelope to class org.apache.kafka.common.serialization.StringSerializer` at runtime, leaving externalized outbox records in `system.event_publication` with `completion_date IS NULL`.
+  3. Existing non-clean Maven test runs missed the defect because an untracked build artifact (`target/test-classes/application.yml`) from prior to Checkpoint 10B shadowed `src/main/resources/application.yml` on the test classpath.
+  4. Furthermore, when the default producer uses `ByteArraySerializer` (for Spring Modulith's `ByteArrayJsonMessageConverter`), `DeadLetterPublishingRecoverer` sharing that default `KafkaOperations` fails with `ClassCastException: class java.lang.String cannot be cast to class [B` whenever a consumer fails after `ErrorHandlingDeserializer` + `StringDeserializer` has already deserialized the record value into a `String`.
+* **Correction**:
+  * **Normal Event Externalization (`src/main/resources/application.yml`)**:
+    * Set `spring.kafka.producer.value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer`.
+    * Set `spring.modulith.events.kafka.enable-json: true` so Spring Modulith's `ByteArrayJsonMessageConverter` serializes `EventEnvelope<T>` objects into UTF-8 JSON `byte[]` payloads while preserving aggregate partition keys (`StringSerializer`).
+  * **Type-Aware Dead-Letter Publishing (`EventsModuleConfiguration.java`)**:
+    * Configured `defaultErrorHandler(ProducerFactory<Object, Object>)` with a dedicated DLT `KafkaTemplate` backed by `DefaultKafkaProducerFactory` and `DelegatingByTypeSerializer` supporting both `byte[].class -> ByteArraySerializer` (for raw byte/deserialization failures) and `String.class -> StringSerializer` (for post-deserialization consumer failures).
+  * **Local `.env` Import (`src/main/resources/application-local.yml`)**:
+    * Added `spring.config.import: optional:file:.env[.properties]` so local port/datasource overrides in `.env` are automatically loaded when running with `-Dspring-boot.run.profiles=local`.
+* **Test Strengthening (`KafkaReliabilityAndConsumerIntegrationTest.java`)**:
+  * Removed stale `target/test-classes/application.yml` via `.\mvnw.cmd clean test`.
+  * Strengthened `shouldPublishDomainEventsWithAggregatePartitionKeys()` to assert via Awaitility that all externalized `EventExternalizerModuleListener` rows in `system.event_publication` reach `completion_date IS NOT NULL` (`incompleteExternalizedCount == 0`), poll all 4 Kafka topics (`crosspaynet.banking.funds-reserved.v1`, `crosspaynet.payment.instruction-received.v1`, `crosspaynet.messaging.message-dispatched.v1`, `crosspaynet.settlement.payment-settled.v1`) to verify `EventEnvelope` JSON deserialization and aggregate partition keys, and verify `SampleReliableConsumer` processes the externalized `FundsReserved` envelope.
+  * Strengthened `shouldRoutePoisonPillToDeadLetterTopicWithDiagnosticHeaders()` to assert DLT record key/payload preservation and verify failed events are never recorded in `system.event_inbox` or `system.sample_consumer_effect`.
+  * Added `shouldRouteMalformedRawBytesPayloadToDeadLetterTopicPreservingKeyAndPayload()` verifying raw `byte[]` payloads that fail JSON parsing in the consumer are routed to `.DLT` with key, payload, and exception diagnostic headers preserved.
+* **Verification**:
+  * Full clean test suite (`.\mvnw.cmd clean test`): **442 tests run, 0 failures, 0 errors, 0 skipped**.
+  * Live runtime verification against Docker PostgreSQL 18 and Apache Kafka 3.8.0: verified automatic replay and completion (`completion_date IS NOT NULL`) of both historical pending outbox records, live publication and completion of newly initiated payment events, live `.DLT` routing of poison-pill records, and `GET /actuator/health` returning `200 UP`.
+
+---
+
+## 2026-11-01 — Checkpoint 11A: Next.js Customer Portal Frontend MVP — *Accepted (`b5709bb`)*
 
 * **Scope**: Created the first functional customer-facing frontend for CrossPayNet under `apps/web` using Next.js 16 (App Router), React 19, TypeScript (strict mode), Tailwind CSS v4, and Lucide React:
   * **Centralized API Client, CSRF & In-Memory Auth (`apps/web/src/lib/`)**:

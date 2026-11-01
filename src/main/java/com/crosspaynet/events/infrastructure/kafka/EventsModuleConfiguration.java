@@ -18,12 +18,18 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.SerializationException;
+import org.apache.kafka.common.serialization.ByteArraySerializer;
+import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.TopicBuilder;
+import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaOperations;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.core.ProducerFactory;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.kafka.support.serializer.DelegatingByTypeSerializer;
 import org.springframework.kafka.support.serializer.DeserializationException;
 import org.springframework.modulith.events.EventExternalizationConfiguration;
 import org.springframework.modulith.events.RoutingTarget;
@@ -31,6 +37,8 @@ import org.springframework.util.backoff.FixedBackOff;
 
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.util.HashMap;
+import java.util.Map;
 
 @Configuration(proxyBeanMethods = false)
 public class EventsModuleConfiguration {
@@ -95,9 +103,25 @@ public class EventsModuleConfiguration {
     }
 
     @Bean
-    public DefaultErrorHandler defaultErrorHandler(KafkaOperations<Object, Object> kafkaOperations) {
+    public DefaultErrorHandler defaultErrorHandler(ProducerFactory<Object, Object> producerFactory) {
+        Map<String, Object> dltProducerProps = new HashMap<>(producerFactory.getConfigurationProperties());
+        DelegatingByTypeSerializer dltKeySerializer = new DelegatingByTypeSerializer(Map.of(
+                byte[].class, new ByteArraySerializer(),
+                String.class, new StringSerializer()
+        ));
+        DelegatingByTypeSerializer dltValueSerializer = new DelegatingByTypeSerializer(Map.of(
+                byte[].class, new ByteArraySerializer(),
+                String.class, new StringSerializer()
+        ));
+        DefaultKafkaProducerFactory<Object, Object> dltProducerFactory = new DefaultKafkaProducerFactory<>(
+                dltProducerProps,
+                dltKeySerializer,
+                dltValueSerializer
+        );
+        KafkaOperations<Object, Object> dltKafkaOperations = new KafkaTemplate<>(dltProducerFactory);
+
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(
-                kafkaOperations,
+                dltKafkaOperations,
                 (record, exception) -> new TopicPartition(record.topic() + DLT_SUFFIX, record.partition())
         );
 

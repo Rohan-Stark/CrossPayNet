@@ -20,6 +20,8 @@ import com.crosspaynet.payment.contracts.InitiatePaymentCommand;
 import com.crosspaynet.payment.contracts.PaymentView;
 import com.crosspaynet.settlement.SettlementService;
 import com.crosspaynet.settlement.contracts.SettlePaymentCommand;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -36,7 +38,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.kafka.test.utils.KafkaTestUtils;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -80,6 +81,9 @@ class KafkaReliabilityAndConsumerIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
@@ -189,14 +193,24 @@ class KafkaReliabilityAndConsumerIntegrationTest {
             while (Instant.now().isBefore(deadline) && dltRecord == null) {
                 var records = consumer.poll(Duration.ofMillis(500));
                 for (ConsumerRecord<String, String> record : records) {
-                    if (record.value() != null && record.value().contains("POISON_PILL")) {
+                    if (eventId.toString().equals(record.key())
+                            && record.value() != null
+                            && record.value().contains("POISON_PILL")) {
                         dltRecord = record;
                         break;
                     }
                 }
             }
             assertThat(dltRecord).isNotNull();
+            assertThat(dltRecord.key()).isEqualTo(eventId.toString());
             assertThat(dltRecord.value()).contains("POISON_PILL");
+            assertThat(dltRecord.value()).contains(eventId.toString());
+
+            // Verify failed processing never falsely marks the event as processed in inbox or effect tables
+            assertThat(inboxRepository.existsByMessageIdAndConsumerGroup(eventId, SampleReliableConsumer.CONSUMER_GROUP))
+                    .isFalse();
+            assertThat(effectRepository.countByEventIdAndConsumerGroup(eventId, SampleReliableConsumer.CONSUMER_GROUP))
+                    .isZero();
 
             // Diagnostic headers verification
             boolean hasExceptionHeader = false;
@@ -220,7 +234,46 @@ class KafkaReliabilityAndConsumerIntegrationTest {
     }
 
     @Test
-    void shouldPublishDomainEventsWithAggregatePartitionKeys() {
+    void shouldRouteMalformedRawBytesPayloadToDeadLetterTopicPreservingKeyAndPayload() {
+        String key = "RAW-MALFORMED-" + UUID.randomUUID();
+        byte[] malformedRawBytes = "NOT_VALID_JSON_PAYLOAD_{{{".getBytes(StandardCharsets.UTF_8);
+
+        kafkaTemplate.send(EventsModuleConfiguration.TOPIC_FUNDS_RESERVED, key, malformedRawBytes);
+
+        Consumer<String, String> consumer = createTestConsumer(EventsModuleConfiguration.TOPIC_FUNDS_RESERVED + EventsModuleConfiguration.DLT_SUFFIX);
+        try {
+            ConsumerRecord<String, String> dltRecord = null;
+            Instant deadline = Instant.now().plusSeconds(15);
+            while (Instant.now().isBefore(deadline) && dltRecord == null) {
+                var records = consumer.poll(Duration.ofMillis(500));
+                for (ConsumerRecord<String, String> record : records) {
+                    if (key.equals(record.key())) {
+                        dltRecord = record;
+                        break;
+                    }
+                }
+            }
+            assertThat(dltRecord).isNotNull();
+            assertThat(dltRecord.key()).isEqualTo(key);
+            assertThat(dltRecord.value()).isEqualTo("NOT_VALID_JSON_PAYLOAD_{{{");
+
+            boolean hasJsonException = false;
+            for (Header header : dltRecord.headers()) {
+                if (header.key().contains("exception")) {
+                    String val = new String(header.value(), StandardCharsets.UTF_8);
+                    if (val.contains("JsonParseException") || val.contains("JsonProcessingException")) {
+                        hasJsonException = true;
+                    }
+                }
+            }
+            assertThat(hasJsonException).isTrue();
+        } finally {
+            consumer.close();
+        }
+    }
+
+    @Test
+    void shouldPublishDomainEventsWithAggregatePartitionKeys() throws Exception {
         AccountId sourceAccountId = createAccount("USD", "ACTIVE", new BigDecimal("10000.0000"));
         PaymentReference ref = PaymentReference.of("PAY-TOPIC-" + shortId());
         Money amount = Money.of("150.0000", "USD");
@@ -252,12 +305,115 @@ class KafkaReliabilityAndConsumerIntegrationTest {
                 "SETTLE-TOPIC-" + shortId()
         ));
 
-        // Verify that events exist in system.event_publication with completed/incomplete outbox state
-        Integer totalPublications = jdbcTemplate.queryForObject(
-                "SELECT count(*) FROM system.event_publication",
-                Integer.class
+        String paymentIdStr = payment.paymentId().getValue().toString();
+        String accountIdStr = sourceAccountId.getValue().toString();
+
+        // Verify that all externalized publication records for this payment/account exist AND reach completion_date IS NOT NULL
+        await().atMost(Duration.ofSeconds(15)).untilAsserted(() -> {
+            Integer completedExternalizedCount = jdbcTemplate.queryForObject(
+                    """
+                    SELECT count(*) FROM system.event_publication
+                    WHERE listener_id LIKE '%EventExternalizerModuleListener%'
+                      AND (serialized_event LIKE ? OR serialized_event LIKE ?)
+                      AND completion_date IS NOT NULL
+                    """,
+                    Integer.class,
+                    "%" + ref.getValue() + "%",
+                    "%" + paymentIdStr + "%"
+            );
+            assertThat(completedExternalizedCount).isGreaterThanOrEqualTo(4);
+
+            Integer incompleteExternalizedCount = jdbcTemplate.queryForObject(
+                    """
+                    SELECT count(*) FROM system.event_publication
+                    WHERE listener_id LIKE '%EventExternalizerModuleListener%'
+                      AND (serialized_event LIKE ? OR serialized_event LIKE ?)
+                      AND completion_date IS NULL
+                    """,
+                    Integer.class,
+                    "%" + ref.getValue() + "%",
+                    "%" + paymentIdStr + "%"
+            );
+            assertThat(incompleteExternalizedCount).isZero();
+        });
+
+        // Verify actual Kafka messages, EventEnvelope deserialization, and aggregate partition keys across all 4 topics
+        UUID fundsReservedEventId = assertTopicContainsEnvelopeWithKey(
+                EventsModuleConfiguration.TOPIC_FUNDS_RESERVED,
+                accountIdStr,
+                "FundsReserved",
+                ref.getValue()
         );
-        assertThat(totalPublications).isGreaterThanOrEqualTo(4);
+        assertTopicContainsEnvelopeWithKey(
+                EventsModuleConfiguration.TOPIC_INSTRUCTION_RECEIVED,
+                paymentIdStr,
+                "PaymentInstructionReceived",
+                paymentIdStr
+        );
+        assertTopicContainsEnvelopeWithKey(
+                EventsModuleConfiguration.TOPIC_MESSAGE_DISPATCHED,
+                paymentIdStr,
+                "PaymentSentToNetwork",
+                paymentIdStr
+        );
+        assertTopicContainsEnvelopeWithKey(
+                EventsModuleConfiguration.TOPIC_PAYMENT_SETTLED,
+                paymentIdStr,
+                "PaymentSettledEvent",
+                paymentIdStr
+        );
+
+        // Verify SampleReliableConsumer also deserialized and processed the real externalized FundsReserved EventEnvelope
+        await().atMost(Duration.ofSeconds(15)).untilAsserted(() -> {
+            assertThat(inboxRepository.existsByMessageIdAndConsumerGroup(
+                    fundsReservedEventId,
+                    SampleReliableConsumer.CONSUMER_GROUP
+            )).isTrue();
+            assertThat(effectRepository.countByEventIdAndConsumerGroup(
+                    fundsReservedEventId,
+                    SampleReliableConsumer.CONSUMER_GROUP
+            )).isEqualTo(1);
+        });
+    }
+
+    private UUID assertTopicContainsEnvelopeWithKey(
+            String topic,
+            String expectedKey,
+            String expectedEventType,
+            String expectedPayloadSubstring
+    ) throws Exception {
+        Consumer<String, String> consumer = createTestConsumer(topic);
+        try {
+            ConsumerRecord<String, String> matchedRecord = null;
+            Instant deadline = Instant.now().plusSeconds(15);
+            while (Instant.now().isBefore(deadline) && matchedRecord == null) {
+                ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(500));
+                for (ConsumerRecord<String, String> record : records) {
+                    if (expectedKey.equals(record.key())
+                            && record.value() != null
+                            && record.value().contains(expectedPayloadSubstring)) {
+                        matchedRecord = record;
+                        break;
+                    }
+                }
+            }
+            assertThat(matchedRecord)
+                    .as("Expected message on topic %s with aggregate partition key %s", topic, expectedKey)
+                    .isNotNull();
+            assertThat(matchedRecord.key()).isEqualTo(expectedKey);
+
+            JsonNode envelopeNode = objectMapper.readTree(matchedRecord.value());
+            assertThat(envelopeNode.hasNonNull("eventId")).isTrue();
+            UUID eventId = UUID.fromString(envelopeNode.get("eventId").asText());
+            assertThat(eventId).isNotNull();
+            assertThat(envelopeNode.get("eventType").asText()).isEqualTo(expectedEventType);
+            assertThat(envelopeNode.get("eventVersion").asInt()).isEqualTo(1);
+            assertThat(envelopeNode.hasNonNull("occurredAt")).isTrue();
+            assertThat(envelopeNode.hasNonNull("payload")).isTrue();
+            return eventId;
+        } finally {
+            consumer.close();
+        }
     }
 
     private Consumer<String, String> createTestConsumer(String topic) {

@@ -3,6 +3,9 @@
 # STRICTLY FOR LOCAL DEVELOPMENT AND SIMULATION TESTING. NEVER USE IN PRODUCTION.
 
 spring:
+  config:
+    import: optional:file:.env[.properties]
+
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/crosspaynet}
     username: ${SPRING_DATASOURCE_USERNAME:crosspaynet_user}
