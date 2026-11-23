@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block title %}Compliance & Sanctions — CrossPayNet{% endblock %}
+
+{% block content %}
+<div class="page-topbar">
+    <div>
+        <h1 class="page-title">Sanctions & AML Compliance Review</h1>
+        <div class="page-subtitle">Real-time screening, OFAC sanctions matching, and officer decision audit logs</div>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        <span class="status-pill">
+            <span class="status-dot"></span>
+            Automated Screening Active
+        </span>
+    </div>
+</div>
+
+<div class="content-card">
+    <div class="content-card-header">
+        <h3 class="content-card-title">
+            <i class="bi bi-shield-exclamation" style="color: var(--cpn-support-dark);"></i>
+            Compliance Review Queue & Audit Log
+        </h3>
+        <span class="badge badge-accent-subtle">{{ reviews|length }} Flagged Events</span>
+    </div>
+    <div class="p-0">
+        <div class="table-responsive">
+            <table class="app-table">
+                <thead>
+                    <tr>
+                        <th>Review #</th>
+                        <th>Wire Reference</th>
+                        <th>Debtor Entity</th>
+                        <th>Beneficiary / BIC</th>
+                        <th>Amount</th>
+                        <th>Triggered Screening Rule</th>
+                        <th>Decision Status</th>
+                        <th class="text-end">Officer Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in reviews %}
+                    <tr>
+                        <td><span class="badge badge-neutral">#{{ r.review_id }}</span></td>
+                        <td><span class="font-monospace fw-bold text-accent" style="font-size: 0.82rem;">{{ r.reference_no }}</span></td>
+                        <td>
+                            <div class="fw-semibold text-dark">{{ r.sender_name }}</div>
+                            <div class="font-monospace text-muted" style="font-size: 0.74rem;">{{ r.sender_account }}</div>
+                        </td>
+                        <td>
+                            <div class="text-dark">{{ r.beneficiary_name }}</div>
+                            <span class="badge-bic">{{ r.beneficiary_bic }}</span>
+                        </td>
+                        <td>
+                            <strong class="text-dark">{{ r.currency }} {{ "{:,.2f}".format(r.amount) }}</strong>
+                        </td>
+                        <td>
+                            <span class="badge-status badge-screening">
+                                <i class="bi bi-exclamation-circle-fill"></i> {{ r.matched_rule }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if r.status == 'FLAGGED' %}
+                                <span class="badge-status badge-screening">
+                                    <i class="bi bi-hourglass-split"></i> PENDING REVIEW
+                                </span>
+                            {% elif r.status == 'PASSED' %}
+                                <span class="badge-status badge-settled">
+                                    <i class="bi bi-check-circle-fill"></i> APPROVED
+                                </span>
+                            {% else %}
+                                <span class="badge-status badge-rejected">
+                                    <i class="bi bi-x-circle-fill"></i> REJECTED
+                                </span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            {% if r.status == 'FLAGGED' %}
+                            <div class="d-inline-flex gap-1">
+                                <form action="{{ url_for('compliance_action') }}" method="POST" class="d-inline">
+                                    <input type="hidden" name="review_id" value="{{ r.review_id }}">
+                                    <input type="hidden" name="action" value="APPROVE">
+                                    <button type="submit" class="btn-accent" style="padding: 0.25rem 0.65rem; font-size: 0.76rem;" onclick="return confirm('Approve this transaction for clearing?');">
+                                        <i class="bi bi-check2"></i> Approve
+                                    </button>
+                                </form>
+                                <form action="{{ url_for('compliance_action') }}" method="POST" class="d-inline">
+                                    <input type="hidden" name="review_id" value="{{ r.review_id }}">
+                                    <input type="hidden" name="action" value="REJECT">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" style="padding: 0.25rem 0.65rem; font-size: 0.76rem;" onclick="return confirm('Reject this transaction?');">
+                                        <i class="bi bi-x"></i> Reject
+                                    </button>
+                                </form>
+                            </div>
+                            {% else %}
+                                <span class="text-muted" style="font-size: 0.78rem;">Decided</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="8" class="text-center py-4 text-muted">No flagged compliance reviews found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
