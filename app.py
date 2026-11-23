@@ -9,6 +9,9 @@ from database.db import get_db, init_db
 app = Flask(__name__)
 app.secret_key = "crosspaynet-college-dbms-key-2026"
 
+# Ensure database and seed data are initialized on startup
+init_db(reset=False)
+
 SANCTIONED_KEYWORDS = ["SANCTION", "EMBARGO", "TERROR", "PROHIBITED", "BLACKLIST"]
 HIGH_VALUE_THRESHOLD = 50000.00
 
