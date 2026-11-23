@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block title %}SQL Console — CrossPayNet{% endblock %}
+
+{% block content %}
+<div class="page-topbar">
+    <div>
+        <h1 class="page-title">Interactive SQL Console & Schema Explorer</h1>
+        <div class="page-subtitle">Execute live queries, inspect 3NF relational schemas, and verify database integrity</div>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        <span class="status-pill">
+            <span class="status-dot"></span>
+            SQLite3 Connection Open
+        </span>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
+    <!-- SQL Query Form -->
+    <div class="col-lg-8">
+        <div class="content-card h-100">
+            <div class="content-card-header">
+                <h3 class="content-card-title">
+                    <i class="bi bi-terminal-fill text-accent"></i>
+                    Execute SQL Query
+                </h3>
+            </div>
+            <div class="content-card-body">
+                <form id="sqlForm" action="{{ url_for('query_console') }}" method="POST">
+                    <div class="mb-3">
+                        <textarea name="sql_query" class="form-control font-monospace" rows="4" placeholder="Enter SQL query (e.g. SELECT * FROM view_account_summary;)">{{ sql_text }}</textarea>
+                    </div>
+
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <div class="d-flex gap-2 flex-wrap">
+                            <span class="text-muted small align-self-center">Quick Runs:</span>
+                            <button type="button" class="btn-support-outline" style="padding: 0.25rem 0.65rem; font-size: 0.76rem;" onclick="setQuery('SELECT * FROM view_account_summary;', true)">Account Summary</button>
+                            <button type="button" class="btn-support-outline" style="padding: 0.25rem 0.65rem; font-size: 0.76rem;" onclick="setQuery('SELECT * FROM view_payment_details;', true)">Payment History</button>
+                            <button type="button" class="btn-support-outline" style="padding: 0.25rem 0.65rem; font-size: 0.76rem;" onclick="setQuery('SELECT * FROM view_trial_balance;', true)">Trial Balance</button>
+                            <button type="button" class="btn-support-outline" style="padding: 0.25rem 0.65rem; font-size: 0.76rem;" onclick="setQuery('EXPLAIN QUERY PLAN SELECT * FROM accounts WHERE customer_id = 1;', true)">Explain Plan</button>
+                        </div>
+                        <button type="submit" class="btn-accent">
+                            <i class="bi bi-play-fill"></i> Execute SQL
+                        </button>
+                    </div>
+                </form>
+
+                {% if error %}
+                <div class="alert alert-danger mt-3 mb-0 py-2 small">
+                    <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                    <strong>SQL Error:</strong> {{ error }}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Database Schema Explorer -->
+    <div class="col-lg-4">
+        <div class="content-card h-100">
+            <div class="content-card-header">
+                <h3 class="content-card-title">
+                    <i class="bi bi-diagram-2" style="color: var(--cpn-support-dark);"></i>
+                    Relational Schema Objects
+                </h3>
+                <span class="badge badge-neutral">{{ schema_objects|length }} Objects</span>
+            </div>
+            <div class="p-0">
+                <div class="list-group list-group-flush small" style="max-height: 270px; overflow-y: auto;">
+                    {% for obj in schema_objects %}
+                    <button type="button" 
+                            class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-2 px-3 border-0 schema-item-btn" 
+                            onclick="setQuery('SELECT * FROM {{ obj.name }};', true)"
+                            title="Click to query {{ obj.name }}">
+                        <div class="d-flex align-items-center">
+                            {% if obj.type == 'table' %}
+                                <i class="bi bi-table text-accent me-2"></i>
+                            {% else %}
+                                <i class="bi bi-eye me-2" style="color: var(--cpn-support-dark);"></i>
+                            {% endif %}
+                            <span class="fw-semibold font-monospace" style="font-size: 0.8rem;">{{ obj.name }}</span>
+                        </div>
+                        <span class="badge {% if obj.type == 'table' %}badge-accent-subtle{% else %}badge-screening{% endif %}" style="font-size: 0.68rem;">
+                            {{ obj.type|upper }}
+                        </span>
+                    </button>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Query Results Display -->
+{% if query_result is not none %}
+<div class="content-card mb-4">
+    <div class="content-card-header">
+        <h3 class="content-card-title">
+            <i class="bi bi-table text-accent"></i>
+            Query Result Set
+        </h3>
+        <span class="badge badge-accent-subtle">{{ query_result|length }} Rows Returned</span>
+    </div>
+    <div class="p-0">
+        <div class="table-responsive">
+            <table class="app-table font-monospace" style="font-size: 0.82rem;">
+                <thead>
+                    <tr>
+                        {% for col in columns %}
+                        <th>{{ col }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in query_result %}
+                    <tr>
+                        {% for col in columns %}
+                        <td>{{ row[col] }}</td>
+                        {% endfor %}
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="{{ columns|length }}" class="text-center py-3 text-muted">Zero rows returned.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<script>
+function setQuery(sql, autoRun = false) {
+    const textarea = document.querySelector('textarea[name="sql_query"]');
+    textarea.value = sql;
+    if (autoRun) {
+        document.getElementById('sqlForm').submit();
+    } else {
+        textarea.focus();
+    }
+}
+</script>
+{% endblock %}

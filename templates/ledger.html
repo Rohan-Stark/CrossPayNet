@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block title %}Double-Entry Ledger — CrossPayNet{% endblock %}
+
+{% block content %}
+<div class="page-topbar">
+    <div>
+        <h1 class="page-title">Double-Entry Financial Ledger</h1>
+        <div class="page-subtitle">Immutable general ledger journals with mathematical debit/credit equilibrium</div>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        <span class="status-pill">
+            <span class="status-dot"></span>
+            Ledger Equilibrium Verified
+        </span>
+    </div>
+</div>
+
+<!-- Trial Balance Verification Cards -->
+<div class="row g-3 mb-4">
+    {% for tb in trial_balance %}
+    <div class="col-md">
+        <div class="content-card p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="currency-flag-badge">{{ tb.currency }}</span>
+                {% if tb.balance_difference == 0 %}
+                    <span class="badge-status badge-settled" style="font-size: 0.7rem;">
+                        <i class="bi bi-check2"></i> BALANCED
+                    </span>
+                {% else %}
+                    <span class="badge-status badge-rejected" style="font-size: 0.7rem;">
+                        DIFF: {{ tb.balance_difference }}
+                    </span>
+                {% endif %}
+            </div>
+            <div class="d-flex justify-content-between text-muted small mt-2">
+                <span>Debits:</span>
+                <span class="fw-bold text-accent">{{ tb.currency }} {{ "{:,.2f}".format(tb.total_debits) }}</span>
+            </div>
+            <div class="d-flex justify-content-between text-muted small mt-1">
+                <span>Credits:</span>
+                <span class="fw-bold" style="color: var(--cpn-support-dark);">{{ tb.currency }} {{ "{:,.2f}".format(tb.total_credits) }}</span>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Ledger Journal Entries Table -->
+<div class="content-card">
+    <div class="content-card-header">
+        <h3 class="content-card-title">
+            <i class="bi bi-journal-text text-accent"></i>
+            General Ledger Journal Entries
+        </h3>
+        <span class="badge badge-accent-subtle">{{ entries|length }} Journal Lines</span>
+    </div>
+    <div class="p-0">
+        <div class="table-responsive">
+            <table class="app-table">
+                <thead>
+                    <tr>
+                        <th>Tx #</th>
+                        <th>Reference</th>
+                        <th>Transaction Type</th>
+                        <th>Account Identifier</th>
+                        <th>Entry Type</th>
+                        <th>Amount</th>
+                        <th>Timestamp</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for e in entries %}
+                    <tr>
+                        <td><span class="badge badge-neutral">#{{ e.transaction_id }}</span></td>
+                        <td><span class="font-monospace fw-semibold text-dark" style="font-size: 0.8rem;">{{ e.reference }}</span></td>
+                        <td><span class="badge badge-neutral">{{ e.transaction_type }}</span></td>
+                        <td><span class="font-monospace text-accent fw-bold" style="font-size: 0.82rem;">{{ e.account_identifier }}</span></td>
+                        <td>
+                            {% if e.entry_type == 'DEBIT' %}
+                                <span class="badge-status badge-settled fw-bold">DEBIT</span>
+                            {% else %}
+                                <span class="badge-status badge-screening fw-bold">CREDIT</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="fw-bold text-dark font-monospace">{{ e.currency }} {{ "{:,.2f}".format(e.amount) }}</span>
+                        </td>
+                        <td class="text-muted" style="font-size: 0.76rem;">{{ e.created_at }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="text-center py-4 text-muted">No journal entries found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

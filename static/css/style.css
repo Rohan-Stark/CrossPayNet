@@ -1,0 +1,584 @@
+/* ============================================================
+   CrossPayNet UI Theme: Polished 60-30-10 Fintech Architecture
+   60% Primary Surface: #FFFFFF / #F8FAFC
+   30% Support Color: #EDD28B (Warm Sand / Caramel Gold)
+   10% Accent (Give it life!): #1B87EA (Electric Blue)
+   Canvas Contrast: #0B0D13 (Midnight Slate)
+   ============================================================ */
+
+:root {
+    /* 60% Primary Surfaces & Canvas */
+    --cpn-canvas: #f8fafc;
+    --cpn-surface: #ffffff;
+    --cpn-surface-subtle: #f1f5f9;
+    --cpn-text-main: #0f172a;
+    --cpn-text-secondary: #475569;
+    --cpn-text-muted: #64748b;
+    --cpn-border: #e2e8f0;
+    --cpn-border-subtle: #edf2f7;
+
+    /* 30% Support Color (Warm Sand Gold) */
+    --cpn-support: #edd28b;
+    --cpn-support-hover: #dfc274;
+    --cpn-support-light: #fefcf6;
+    --cpn-support-muted: #f7edd4;
+    --cpn-support-border: #e6cd86;
+    --cpn-support-dark: #8c6a1e;
+
+    /* 10% Accent Color ("Give it life!" Electric Blue) */
+    --cpn-accent: #1b87ea;
+    --cpn-accent-hover: #1573c7;
+    --cpn-accent-active: #0f5fa8;
+    --cpn-accent-light: #eaf4fd;
+    --cpn-accent-border: #a8d1fa;
+    --cpn-accent-shadow: rgba(27, 135, 234, 0.22);
+
+    /* Midnight Header / Dark Elements */
+    --cpn-midnight: #0b0d13;
+    --cpn-midnight-card: #131722;
+    --cpn-midnight-border: #1e2433;
+
+    /* Semantic Status */
+    --cpn-success-bg: #ecfdf5;
+    --cpn-success-text: #047857;
+    --cpn-success-border: #a7f3d0;
+    --cpn-danger-bg: #fef2f2;
+    --cpn-danger-text: #b91c1c;
+    --cpn-danger-border: #fecaca;
+}
+
+/* Base Body Layout */
+* {
+    box-sizing: border-box;
+}
+
+body {
+    background-color: var(--cpn-canvas);
+    color: var(--cpn-text-main);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 0.925rem;
+    line-height: 1.5;
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Main Container: Even, balanced spacing */
+.app-container {
+    max-width: 1360px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 1.5rem 1.75rem;
+}
+
+/* ------------------------------------------------------------
+   1. Clean Executive Navbar
+   ------------------------------------------------------------ */
+.app-navbar {
+    background-color: var(--cpn-midnight);
+    border-bottom: 2px solid var(--cpn-support);
+    padding: 0 1.5rem;
+    height: 56px;
+    min-height: 56px;
+    max-height: 56px;
+    display: flex;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 1030;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+    overflow: hidden;
+}
+
+.brand-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    text-decoration: none;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.brand-icon {
+    width: 30px;
+    height: 30px;
+    background: linear-gradient(135deg, var(--cpn-support), #caa247);
+    color: #0b0d13;
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.95rem;
+    font-weight: 800;
+}
+
+.brand-title {
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 1.1rem;
+    letter-spacing: -0.02em;
+}
+
+.nav-links-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-left: 1.5rem;
+    flex: 1;
+    overflow-x: auto;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge */
+}
+
+.nav-links-wrapper::-webkit-scrollbar {
+    display: none; /* Chrome/Safari */
+}
+
+.app-nav-link {
+    color: #94a3b8;
+    text-decoration: none;
+    font-size: 0.82rem;
+    font-weight: 500;
+    padding: 0.4rem 0.7rem;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+    line-height: 1;
+    transition: all 0.15s ease-in-out;
+}
+
+.app-nav-link:hover {
+    color: #ffffff;
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.app-nav-link.active {
+    color: #ffffff;
+    background-color: var(--cpn-accent);
+    box-shadow: 0 2px 8px var(--cpn-accent-shadow);
+    font-weight: 600;
+}
+
+.nav-right-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.btn-reset-db {
+    background-color: transparent;
+    border: 1px solid rgba(237, 210, 139, 0.4);
+    color: var(--cpn-support);
+    font-size: 0.76rem;
+    font-weight: 600;
+    padding: 0.35rem 0.7rem;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    white-space: nowrap;
+    line-height: 1;
+    transition: all 0.15s ease;
+}
+
+.btn-reset-db:hover {
+    background-color: var(--cpn-support);
+    color: #0b0d13;
+    border-color: var(--cpn-support);
+}
+
+/* ------------------------------------------------------------
+   2. Clean Topbar (Replaces Clunky Hero)
+   ------------------------------------------------------------ */
+.page-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--cpn-border);
+}
+
+.page-title {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--cpn-text-main);
+    margin: 0;
+    letter-spacing: -0.02em;
+}
+
+.page-subtitle {
+    color: var(--cpn-text-muted);
+    font-size: 0.85rem;
+    margin-top: 0.15rem;
+}
+
+.status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0.65rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background-color: #f1f5f9;
+    color: #334155;
+    border: 1px solid #e2e8f0;
+}
+
+.status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background-color: #10b981;
+}
+
+/* ------------------------------------------------------------
+   3. Even, Polished Metric Cards
+   ------------------------------------------------------------ */
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1.25rem;
+    margin-bottom: 1.75rem;
+}
+
+@media (max-width: 992px) {
+    .metrics-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+@media (max-width: 576px) {
+    .metrics-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.metric-card {
+    background-color: var(--cpn-surface);
+    border: 1px solid var(--cpn-border);
+    border-radius: 10px;
+    padding: 1.25rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.metric-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
+}
+
+.metric-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+}
+
+.metric-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--cpn-text-muted);
+}
+
+.metric-icon-box {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.95rem;
+}
+
+.metric-icon-accent {
+    background-color: var(--cpn-accent-light);
+    color: var(--cpn-accent);
+}
+
+.metric-icon-support {
+    background-color: var(--cpn-support-muted);
+    color: var(--cpn-support-dark);
+}
+
+.metric-value {
+    font-size: 1.65rem;
+    font-weight: 700;
+    color: var(--cpn-text-main);
+    line-height: 1.2;
+    margin-bottom: 0.4rem;
+}
+
+.metric-subtext {
+    font-size: 0.78rem;
+    color: var(--cpn-text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+/* ------------------------------------------------------------
+   4. Polished Content Cards & Tables
+   ------------------------------------------------------------ */
+.content-card {
+    background-color: var(--cpn-surface);
+    border: 1px solid var(--cpn-border);
+    border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+    overflow: hidden;
+}
+
+.content-card-header {
+    padding: 1rem 1.25rem;
+    background-color: var(--cpn-surface);
+    border-bottom: 1px solid var(--cpn-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.content-card-title {
+    font-size: 0.98rem;
+    font-weight: 700;
+    color: var(--cpn-text-main);
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.content-card-body {
+    padding: 1.25rem;
+}
+
+/* Tables */
+.app-table {
+    width: 100%;
+    margin-bottom: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.app-table th {
+    background-color: #f8fafc;
+    color: var(--cpn-text-muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--cpn-border);
+    border-top: none;
+}
+
+.app-table td {
+    padding: 0.85rem 1rem;
+    vertical-align: middle;
+    border-bottom: 1px solid var(--cpn-border-subtle);
+    font-size: 0.88rem;
+}
+
+.app-table tbody tr:hover td {
+    background-color: #f8fafc;
+}
+
+.app-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* ------------------------------------------------------------
+   5. Buttons & Badges (60-30-10)
+   ------------------------------------------------------------ */
+.btn-accent {
+    background-color: var(--cpn-accent);
+    color: #ffffff;
+    border: 1px solid var(--cpn-accent);
+    font-weight: 600;
+    font-size: 0.84rem;
+    padding: 0.45rem 1rem;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    transition: all 0.15s ease-in-out;
+    box-shadow: 0 1px 3px var(--cpn-accent-shadow);
+    text-decoration: none;
+}
+
+.btn-accent:hover {
+    background-color: var(--cpn-accent-hover);
+    border-color: var(--cpn-accent-hover);
+    color: #ffffff;
+    box-shadow: 0 4px 10px var(--cpn-accent-shadow);
+    transform: translateY(-1px);
+}
+
+.btn-support-outline {
+    background-color: transparent;
+    color: var(--cpn-support-dark);
+    border: 1px solid var(--cpn-support-border);
+    font-weight: 600;
+    font-size: 0.84rem;
+    padding: 0.45rem 1rem;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    transition: all 0.15s ease-in-out;
+    text-decoration: none;
+}
+
+.btn-support-outline:hover {
+    background-color: var(--cpn-support-muted);
+    color: var(--cpn-support-dark);
+    border-color: var(--cpn-support);
+}
+
+/* Status Badges */
+.badge-status {
+    padding: 0.25rem 0.6rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.badge-settled {
+    background-color: var(--cpn-success-bg);
+    color: var(--cpn-success-text);
+    border: 1px solid var(--cpn-success-border);
+}
+
+.badge-screening {
+    background-color: var(--cpn-support-light);
+    color: var(--cpn-support-dark);
+    border: 1px solid var(--cpn-support-border);
+}
+
+.badge-rejected {
+    background-color: var(--cpn-danger-bg);
+    color: var(--cpn-danger-text);
+    border: 1px solid var(--cpn-danger-border);
+}
+
+.badge-neutral {
+    background-color: #f1f5f9;
+    color: #475569;
+    border: 1px solid #cbd5e1;
+}
+
+.badge-bic {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.75rem;
+    background-color: #f1f5f9;
+    color: #1e293b;
+    border: 1px solid #cbd5e1;
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+}
+
+/* ------------------------------------------------------------
+   6. Trial Balance List Items
+   ------------------------------------------------------------ */
+.trial-balance-row {
+    padding: 0.75rem 0.9rem;
+    border-radius: 8px;
+    background-color: #f8fafc;
+    border: 1px solid var(--cpn-border);
+    margin-bottom: 0.6rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.trial-balance-row:last-child {
+    margin-bottom: 0;
+}
+
+.currency-flag-badge {
+    font-weight: 700;
+    font-size: 0.8rem;
+    color: #0f172a;
+    background-color: #ffffff;
+    border: 1px solid var(--cpn-border);
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    letter-spacing: 0.03em;
+}
+
+/* ------------------------------------------------------------
+   Schema Item Clickable Buttons in SQL Console
+   ------------------------------------------------------------ */
+.schema-item-btn {
+    background-color: transparent;
+    cursor: pointer;
+    transition: all 0.15s ease-in-out;
+    border-bottom: 1px solid var(--cpn-border-subtle) !important;
+    text-align: left;
+    width: 100%;
+}
+
+.schema-item-btn:hover {
+    background-color: #f1f5f9 !important;
+}
+
+.schema-item-btn:hover .font-monospace {
+    color: var(--cpn-accent) !important;
+}
+
+.schema-item-btn:active {
+    background-color: var(--cpn-accent-light) !important;
+}
+
+/* ------------------------------------------------------------
+   7. Form Controls
+   ------------------------------------------------------------ */
+.form-label {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #334155;
+    margin-bottom: 0.35rem;
+}
+
+.form-control, .form-select {
+    font-size: 0.88rem;
+    border-color: #cbd5e1;
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+}
+
+.form-control:focus, .form-select:focus {
+    border-color: var(--cpn-accent);
+    box-shadow: 0 0 0 3px var(--cpn-accent-shadow);
+}
+
+/* ------------------------------------------------------------
+   8. Footer
+   ------------------------------------------------------------ */
+.app-footer {
+    margin-top: auto;
+    background-color: #ffffff;
+    border-top: 1px solid var(--cpn-border);
+    padding: 0.85rem 1.5rem;
+    font-size: 0.78rem;
+    color: var(--cpn-text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
